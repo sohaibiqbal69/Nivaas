@@ -1,0 +1,38 @@
+@import '@fontsource/space-grotesk/latin-700.css';
+@import '@fontsource/syne/latin-400.css';
+@import '@fontsource/syne/latin-500.css';
+@import '@fontsource/syne/latin-600.css';
+@import '@fontsource/jetbrains-mono/latin-400.css';
+@import 'tailwindcss';
+
+@theme {
+  --font-headline: 'Space Grotesk', sans-serif;
+  --font-sans: 'Syne', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+  --color-background: #fff8db;
+  --color-foreground: #091120;
+  --color-primary: #e03b29;
+  --color-secondary: #1d5287;
+  --color-accent: #f6e7a7;
+  --color-muted-foreground: #5f6470;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+}
+
+:root {
+  font-family: var(--font-sans);
+  color: #091120;
+  background: #fff8db;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-family: var(--font-headline);
+}

@@ -1,0 +1,23 @@
+{
+  "name": "nivaas",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "frontend",
+    "backend",
+    "blockchain"
+  ],
+  "scripts": {
+    "build": "npm run build --workspace=@nivaas/frontend && npm run build --workspace=@nivaas/backend",
+    "typecheck": "npm run typecheck --workspace=@nivaas/frontend && npm run typecheck --workspace=@nivaas/backend",
+    "test": "npm run test --workspace=@nivaas/frontend && npm run test --workspace=@nivaas/backend",
+    "test:e2e": "playwright test",
+    "blockchain:compile": "npm run compile --workspace=@nivaas/blockchain",
+    "dev:frontend": "npm run dev --workspace=@nivaas/frontend",
+    "dev:backend": "npm run dev --workspace=@nivaas/backend"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.55.0",
+    "typescript": "^5.9.2"
+  }
+}
