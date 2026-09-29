@@ -28,6 +28,11 @@ The controlled specification set is:
 - `docs/BLOCKCHAIN.md`
 - `docs/UI_UX.md`
 - `docs/VERSIONING.md`
+- `docs/IMPLEMENTATION_DECISIONS.md`
+
+`IMPLEMENTATION_DECISIONS.md` records approved technical implementation
+choices and explicitly unresolved decisions. The coding agent must not
+invent solutions for decisions marked unresolved.
 
 These documents define what Nivaas is supposed to do.
 
