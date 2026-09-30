@@ -1,7 +1,7 @@
 # Software Requirements Specification
 
 **Document:** `SRS.md`\
-**Version:** 1.1\
+**Version:** 1.3\
 **Status:** Active Planning Specification\
 **Project:** Nivaas --- Blockchain-Based Apartment Society
 Governance System
@@ -80,6 +80,13 @@ OWNER_MEMBER
 RESIDENT
 ```
 
+`SYSTEM_ADMIN` is a platform-wide technical role, not a society-scoped
+account. It may act across societies only through administrative APIs that
+explicitly permit the operation. It does not make its holder a society
+member or confer ownership, residence, committee membership, governance
+eligibility, or governance authority. Society-scoped roles use their
+persisted society association for resource isolation.
+
 ## FR-ROLE-002
 
 The application shall distinguish an application role from society
@@ -143,6 +150,11 @@ blockchain functionality.
 
 The backend shall enforce role-based authorization.
 
+Platform-wide administrative scope and society-scoped access shall be
+separate authorization capabilities. Cross-society access shall be granted
+only where the applicable API explicitly permits platform administration;
+it shall not be a hidden exception in generic society-isolation checks.
+
 ## FR-AUTHZ-002
 
 The frontend shall display functionality relevant to the user's role and
@@ -165,6 +177,9 @@ explicitly permitted by the administrative workflow.
 
 The system shall prevent technical administrative permissions from
 bypassing governance requirements.
+
+`SYSTEM_ADMIN` technical scope shall not grant society governance authority
+or alter governance history.
 
 ------------------------------------------------------------------------
 
@@ -328,6 +343,30 @@ The System Administrator shall be able to disable accounts.
 
 The system shall maintain an audit record of important role and
 permission changes.
+
+## FR-USER-005
+
+When the System Administrator creates an account, the request shall not
+accept a permanent password or `passwordHash`. A newly created account
+shall enter pending setup. Its possible lifecycle paths may include
+`PENDING_SETUP` to `ACTIVE`, `PENDING_SETUP` to `DISABLED`, and `ACTIVE` to
+`DISABLED`; this is not a complete status enum or transition policy.
+
+## FR-USER-006
+
+The backend shall generate a single-use account-setup credential that
+allows the user to establish their own password. The credential shall not
+be reusable after successful consumption or invalidation. The administrator
+shall never receive or set the user's permanent password. The existing
+authentication/password-hashing mechanism shall be used when the user
+establishes the password.
+
+## FR-USER-007
+
+Account setup shall remain separate from ownership, residence/occupancy,
+society membership, committee membership, and governance/voting eligibility.
+Credential delivery is implementation-specific and is not defined by the
+core user API.
 
 ------------------------------------------------------------------------
 
@@ -2285,7 +2324,7 @@ Blockchain Verification
 
 # 57. SRS STATUS
 
-**Version:** 1.1\
+**Version:** 1.3\
 **Status:** Active Planning Specification
 
 This version incorporates the current approved business-rule decisions

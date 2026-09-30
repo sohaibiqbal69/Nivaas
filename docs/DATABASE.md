@@ -1,6 +1,6 @@
 ## Database Specification
 
-**Document:** `DATABASE.md` **Version:** 1.2 **Database:** MongoDB
+**Document:** `DATABASE.md` **Version:** 1.4 **Database:** MongoDB
 **Status:** Active Planning Document --- Revised Governance, Membership & Rule Versioning Schema
 
 ------------------------------------------------------------------------
@@ -172,6 +172,24 @@ Represents a person using the system.
     createdAt
     updatedAt
 
+`societyId` is nullable only for `SYSTEM_ADMIN` accounts. It is required for
+all other application roles. The platform-wide `SYSTEM_ADMIN` role does not
+itself establish a society association or membership; populating this field
+does not change the role's platform scope or create society membership.
+
+Newly created accounts enter a pending setup state. The account lifecycle
+may include `PENDING_SETUP` to `ACTIVE`, `PENDING_SETUP` to `DISABLED`, and
+`ACTIVE` to `DISABLED`; this is not a complete status enum or status-
+transition policy. Account setup is separate from ownership, residence/
+occupancy, society membership, committee membership, and governance/voting
+eligibility.
+
+The backend generates a single-use account-setup credential so the user can
+establish a password. It cannot be reused after successful consumption or
+invalidation, and the administrator does not receive or set the permanent
+password. No additional credential field, storage representation, expiry,
+or delivery mechanism is defined by this database specification.
+
 ## Role
 
 One of:
@@ -184,9 +202,12 @@ One of:
 
 ## Relationships
 
-A User may belong to:
+A User with a society-scoped role must belong to one Society through
+`societyId`. A `SYSTEM_ADMIN` is platform-wide; its role does not by itself
+establish society membership.
 
--   Society
+A society-scoped User may also have:
+
 -   one or more ownership relationships
 -   one or more residence/occupancy relationships
 -   one or more membership records
@@ -1738,7 +1759,7 @@ transaction hashes.
 
 # 49. DATABASE STATUS
 
-Version 1.2 --- Active Planning Document. Revised to align with SRS v1.1, Business Rules v1.2 and Architecture v1.2. The schema now explicitly separates ownership, residence and membership, adds versioned society rules, approval evaluations and governance eligibility snapshots, and preserves historical decision context. The database schema must not be changed by an AI coding agent without considering the effects on:
+Version 1.4 --- Active Planning Document. Revised to align with SRS v1.3, Business Rules v1.4 and Architecture v1.4. The schema now explicitly separates ownership, residence and membership, distinguishes platform-wide System Administrator accounts from society-scoped users, documents pending account setup without adding credential fields, adds versioned society rules, approval evaluations and governance eligibility snapshots, and preserves historical decision context. The database schema must not be changed by an AI coding agent without considering the effects on:
 
 -   SRS
 -   BUSINESS_RULES.md

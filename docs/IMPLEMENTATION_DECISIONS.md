@@ -2,7 +2,7 @@
 
 
 
-Version: 1.0
+Version: 1.2
 
 Status: Implementation Baseline
 
@@ -321,4 +321,58 @@ merely because implementation is more difficult.
 Avoid unnecessary technical complexity that does not contribute to the
 
 specified system.
+
+
+## 6. Platform and Society Authorization Scope
+
+`SYSTEM_ADMIN` is a platform-wide technical role. It is not a society
+member merely because its holder administers Nivaas. `User.societyId` is
+nullable only for `SYSTEM_ADMIN` and required for all society-scoped roles.
+
+Cross-society access is a separate platform-administration capability and
+must be explicitly permitted by the relevant API. Generic same-society
+authorization must not contain a hidden `SYSTEM_ADMIN` bypass.
+
+The `SYSTEM_ADMIN` role does not confer ownership, residence, society
+membership, committee membership, governance eligibility, or governance
+authority. It does not permit bypassing governance, changing votes,
+fabricating approvals, bypassing required meetings/SGM processes, altering
+completed governance results, rewriting historical payments, or modifying
+other protected governance history.
+
+## 7. User Creation and Initial Credential
+
+`POST /users` creates an account without accepting a permanent password or
+`passwordHash` from the administrator. A new account enters pending setup.
+The backend generates a single-use account-setup credential; the user
+establishes their own password through the account-setup flow. The
+credential cannot be reused after successful consumption or invalidation.
+The administrator never receives or sets the permanent password. The
+existing authentication/password-hashing mechanism is the implementation
+basis when the user establishes the password.
+
+Credential delivery is implementation-specific and is not part of the core
+user API contract. Account setup is separate from society membership,
+ownership, residence/occupancy, committee membership, and governance/voting
+eligibility. This decision does not define a setup endpoint or request/
+response fields.
+
+The following decisions remain unresolved and must not be inferred during
+implementation:
+
+- Setup-token expiry
+- Password complexity requirements
+- Forgot-password flow
+- Email provider or delivery implementation
+- Editable fields for `PATCH /users/:id`
+- Exact status-transition permissions
+- Audit implementation
+
+The documented possible lifecycle paths are `PENDING_SETUP` to `ACTIVE`,
+`PENDING_SETUP` to `DISABLED`, and `ACTIVE` to `DISABLED`. They do not
+constitute a complete status enum or transition policy.
+
+The target-selection contract for platform-wide access through the
+singular `/society` routes is also unspecified. Do not infer a target from a
+client-supplied `societyId`.
 

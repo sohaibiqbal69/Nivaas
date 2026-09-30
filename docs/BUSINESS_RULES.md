@@ -1,6 +1,6 @@
 # Business Rules Specification
 
-**Version:** 1.2 
+**Version:** 1.4 
 **Status:** Active — Planning Baseline
 **Planning Document** --- Revised Governance, Voting & Approval Rules 
 **Project:** Blockchain-Based Apartment Society Governance System
@@ -93,19 +93,30 @@ The system has five primary roles.
 
 ## BR-ROLE-001 --- System Administrator
 
-The System Administrator manages the software/platform. The System
-Administrator may:
+The System Administrator manages the software/platform and has a
+platform-wide technical scope. The role is not a society-scoped account or
+society membership. The System Administrator may, through administrative
+APIs that explicitly permit the operation:
 
-- Create/manage society records
-- Manage buildings
-- Manage flats
-- Manage user accounts
+- Create/manage society records across the platform
+- Manage buildings and flats across the platform
+- Manage user accounts across the platform
 - Assign roles
 - Disable accounts
-- Configure system settings
-- Configure the project approval threshold
+- Configure platform-level system settings
 - View system-level audit records
 - Resolve technical/system issues
+
+The other primary application roles are society-scoped and use their
+persisted society association for access isolation. Their application role
+does not replace ownership, residence, membership, committee membership,
+or governance-eligibility records.
+
+The `SYSTEM_ADMIN` role alone does not grant society membership, ownership,
+residence, committee membership, governance eligibility, or authority to
+change a society's governance-rule version. Authority to change
+governance-rule versions remains unresolved as recorded in
+`IMPLEMENTATION_DECISIONS.md`.
 
 The System Administrator must not have the ability to:
 
@@ -117,6 +128,27 @@ The System Administrator must not have the ability to:
 - Approve a project that requires society approval
 - Bypass an SGM requirement
 - Delete important governance history
+
+## User Creation and Initial Credential
+
+When the System Administrator creates a user account, the administrator
+must not provide or receive the user's permanent password. The account
+enters pending setup, and the backend generates a single-use account-setup
+credential for the user to establish their own password. The credential
+cannot be reused after successful consumption or invalidation. The existing
+authentication/password-hashing mechanism is used when the user establishes
+the password.
+
+Credential delivery is implementation-specific; no delivery provider or
+service is mandated by this business rule. Account setup is distinct from
+ownership, residence/occupancy, society membership, committee membership,
+and governance/voting eligibility. The permitted lifecycle paths may include
+`PENDING_SETUP` to `ACTIVE`, `PENDING_SETUP` to `DISABLED`, and `ACTIVE` to
+`DISABLED`; these paths do not define a complete status-transition policy.
+
+Setup-token expiry, password complexity, forgot-password behavior, user
+profile fields editable through `PATCH /users/:id`, exact status-transition
+permissions, and the audit implementation remain unspecified.
 
 ---
 
@@ -1580,12 +1612,14 @@ Quotation Revision?
 
 # 66. BUSINESS RULE STATUS
 
-**Current status:** Planning baseline, revised to v1.2.
+**Current status:** Planning baseline, revised to v1.4.
 
 This version separates membership, ownership, residence and governance
-eligibility; makes approval and meeting rules configurable/versioned; defines
-a concrete prototype governance baseline where the reviewed rules support it;
-and preserves historical decision integrity.
+eligibility; establishes the platform-wide technical scope of
+`SYSTEM_ADMIN` and specifies initial account setup credentials; makes
+approval and meeting rules configurable/versioned;
+defines a concrete prototype governance baseline where the reviewed rules
+support it; and preserves historical decision integrity.
 
 Any future business-rule change must first be documented here before being
 implemented in code.

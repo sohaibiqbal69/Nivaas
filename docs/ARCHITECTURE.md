@@ -1,7 +1,7 @@
 ## System Architecture Specification
 
 **Document:** `ARCHITECTURE.md`
-**Version:** 1.2
+**Version:** 1.4
 **Status:** Active Planning Document — Revised Governance, Rule Engine & Blockchain Architecture
 
 ---
@@ -389,6 +389,17 @@ Blockchain reference
 
 # 16. AUTHENTICATION FLOW
 
+When a user account is created, the backend generates a single-use
+account-setup credential. The user uses the account-setup flow to establish
+their own password, which uses the existing authentication/password-hashing
+mechanism. Successful consumption or invalidation prevents reuse. The
+credential's delivery is implementation-specific; this architecture does
+not select a delivery provider or define a setup endpoint/API contract,
+token expiry, or password complexity requirement. Account setup does not
+establish society membership, ownership, residence/occupancy, committee
+membership, or governance/voting eligibility. The administrator does not
+receive or set a user's permanent password.
+
 The basic authentication flow is:
 
 ```
@@ -430,6 +441,26 @@ Check business rule
  ↓
 Allow / Reject
 ```
+
+## Authorization Scope
+
+`SYSTEM_ADMIN` has platform-wide technical scope. Society-scoped roles use
+the society association loaded from the authenticated user's persisted
+record. A request-supplied `societyId` or `userId` is not proof of identity
+or access.
+
+Cross-society access for `SYSTEM_ADMIN` is an explicit platform-admin
+capability that must be granted by the relevant API authorization. It must
+not be implemented as an implicit exception inside generic same-society
+checks. A platform-admin role does not make the user a society member and
+does not grant ownership, residence, committee membership, governance
+eligibility, or governance authority. It cannot bypass society governance
+or alter protected governance history.
+
+Society-scoped endpoint access is evaluated against the society associated
+with the server-loaded resource. The exact target-selection contract for a
+platform administrator using the singular current-society API routes remains
+unspecified in `API.md`.
 
 Example:
 
@@ -1130,5 +1161,5 @@ AI coding tools must:
 
 # 43. ARCHITECTURE STATUS
 
-Version 1.2 — Active Planning Document. Revised to align with SRS v1.1 and Business Rules v1.2, explicitly introducing the modular-monolith domain structure, membership/eligibility layer, versioned rule configuration, Approval Engine, Governance Resolution architecture, and blockchain transaction boundaries.
+Version 1.4 — Active Planning Document. Revised to align with SRS v1.3 and Business Rules v1.4, explicitly introducing the modular-monolith domain structure, membership/eligibility layer, versioned rule configuration, Approval Engine, Governance Resolution architecture, blockchain transaction boundaries, separate platform/society authorization scopes, and user-established initial credentials.
 Any major architectural change must update this document and the affected technical specifications.

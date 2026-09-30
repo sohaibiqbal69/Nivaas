@@ -1,6 +1,6 @@
 ## REST API Specification
 
-**Document:** `API.md` **Version:** 1.2 **Base URL:** `/api` **Status:**
+**Document:** `API.md` **Version:** 1.4 **Base URL:** `/api` **Status:**
 Active Planning Document — Revised Membership, Rule Configuration,
 Approval & Governance APIs
 
@@ -39,6 +39,23 @@ the backend. The API is responsible for:
     state values are never authoritative.
 12. Workflow actions are preferred over generic state-changing PATCH
     requests for governed entities.
+
+## Authorization Scope
+
+`SYSTEM_ADMIN` is a platform-wide technical role. Cross-society access is
+permitted only on an administrative endpoint whose authorization explicitly
+allows that capability. Platform scope is not implemented as an exception in
+generic same-society checks.
+
+All other application roles are society-scoped. Their society context comes
+from the authenticated user's persisted `societyId`, and access to a
+society-associated resource must be checked against that context. Client-
+supplied identity or society fields do not establish authorization.
+
+`SYSTEM_ADMIN` does not gain society membership, ownership, residence,
+committee membership, governance eligibility, or governance authority from
+the platform role. Administrative access must not bypass a society's
+governance process or alter protected governance history.
 
 ------------------------------------------------------------------------
 
@@ -147,13 +164,19 @@ Return the currently authenticated user.
 
 ## GET `/users`
 
-System Admin only. Returns users according to permitted filters.
+System Admin only. This is a platform-scoped administrative endpoint and may
+return users across societies according to permitted filters. The endpoint's
+explicit platform scope does not establish platform scope for other routes.
 
 ------------------------------------------------------------------------
 
 ## GET `/users/:id`
 
 Returns a user profile according to permission.
+
+Any cross-society access must be explicitly permitted for this endpoint.
+Other access remains subject to the target user's society scope and the
+applicable self/profile permissions.
 
 ------------------------------------------------------------------------
 
@@ -162,6 +185,22 @@ Returns a user profile according to permission.
 Create a user. Allowed:
 
 -   System Admin
+
+The System Admin's platform scope applies only because this endpoint
+explicitly permits that role. Account creation must not accept a permanent
+password or `passwordHash` from the administrator. A newly created account
+enters pending setup, and the backend generates a single-use account-setup
+credential that the user consumes to establish their own password. The
+credential cannot be reused after successful consumption or invalidation.
+The administrator must never receive or set the user's permanent password.
+
+Credential delivery is implementation-specific and is not part of this
+core user API; no delivery provider or service is required by this contract.
+This decision does not define setup-token expiry, password complexity, or
+the account-setup API contract. The existing authentication/password-hashing
+mechanism is the basis when the user establishes a password. Account setup
+is separate from society membership, ownership, residence/occupancy,
+committee membership, and governance/voting eligibility.
 
 ------------------------------------------------------------------------
 
@@ -175,6 +214,11 @@ Update permitted user information.
 
 Enable/disable a user.
 
+The System Administrator may disable accounts under `BR-ROLE-001`; that
+administrative scope may cross societies. The endpoint does not define the
+status values or transition rules, nor does this specification separately
+assign the permission to enable an account.
+
 ------------------------------------------------------------------------
 
 ## PATCH `/users/:id/role`
@@ -185,6 +229,11 @@ Change user role. Allowed:
 
 Must create an audit record.
 
+The explicitly permitted System Administrator may administer user roles
+across societies. Role changes do not grant the target user society
+membership or governance eligibility. The audit requirement remains in
+force.
+
 ------------------------------------------------------------------------
 
 # 7. SOCIETY APIs
@@ -193,6 +242,12 @@ Must create an audit record.
 
 Return current society information.
 
+For a society-scoped user, the current society is derived from the persisted
+authenticated user's `societyId`. A System Administrator has no current
+society by virtue of the platform role. The target-selection contract for
+platform-wide access through this singular route is unresolved; a
+client-supplied `societyId` must not be treated as authorization.
+
 ------------------------------------------------------------------------
 
 ## PATCH `/society`
@@ -200,6 +255,12 @@ Return current society information.
 Update society configuration. Allowed:
 
 -   System Admin
+
+The target-selection contract for a platform-wide System Administrator on
+this singular route is unresolved. The role permission does not make a
+client-supplied `societyId` authoritative, and this endpoint does not grant
+authority to bypass governance or change governance-rule versions without
+the separately applicable authorization.
 
 ------------------------------------------------------------------------
 
@@ -1427,7 +1488,7 @@ Simplified permissions:
 
   Meetings     Full        Manage        Participate           Participate   Limited
 
-  Governance   Admin       Manage        Participate           Vote if       No automatic
+  Governance   None        Manage       Participate           Vote if       No automatic
   Voting                                                       eligible      vote
 
   Complaints   Full        Manage        Review                Create        Create
@@ -1444,6 +1505,16 @@ Simplified permissions:
 This matrix is a baseline. Specific endpoint authorization must still be
 checked against entity state, membership, resolution eligibility, conflict
 of interest and the applicable society rule configuration.
+
+In this matrix, the Admin column denotes `SYSTEM_ADMIN`'s platform-level
+technical scope. In the Society row, Full refers to platform-level access
+only on explicitly permitted society-administration endpoints; it does not
+resolve authority to change governance-rule versions. For the
+Governance/Voting row, `SYSTEM_ADMIN` has no governance authority; platform
+administration must not bypass the society governance process.
+Cross-society administrative scope applies only where a specific endpoint
+explicitly permits it. Generic society-isolation checks must not embed a
+platform-admin bypass.
 
 ------------------------------------------------------------------------
 
@@ -1612,10 +1683,10 @@ Whenever an API changes, the AI developer must update:
 
 # 39. API STATUS
 
-Version 1.2 — Active Planning Document.
+Version 1.4 — Active Planning Document.
 
-Revised to align with SRS v1.1, Business Rules v1.2, Architecture v1.2 and
-Database v1.2. The API now explicitly supports the membership/eligibility
+Revised to align with SRS v1.3, Business Rules v1.4, Architecture v1.4 and
+Database v1.4. The API now explicitly supports the membership/eligibility
 layer, versioned governance configuration, approval re-evaluation,
 meeting/quorum workflows, governance-result finalization and retry-safe
 critical operations.
