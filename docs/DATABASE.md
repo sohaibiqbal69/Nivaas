@@ -234,13 +234,15 @@ A User may belong to:
     flatNumber
     floor
     type
-    ownerIds
-    residentIds
     status
     createdAt
     updatedAt
 
-A flat may have multiple owners. A flat may have multiple residents.
+Ownership is represented by the `ownerships` collection, and
+residence/occupancy is represented by the `residences` collection. These
+relationship collections are authoritative. Owner and resident ID arrays
+are intentionally not duplicated on Flat. A flat may have multiple owners
+and multiple residents through these relationships.
 
 ------------------------------------------------------------------------
 
