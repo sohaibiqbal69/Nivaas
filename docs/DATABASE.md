@@ -1,6 +1,6 @@
 ## Database Specification
 
-**Document:** `DATABASE.md` **Version:** 1.7 **Database:** MongoDB
+**Document:** `DATABASE.md` **Version:** 1.8 **Database:** MongoDB
 **Status:** Active Planning Document --- Revised Governance, Membership & Rule Versioning Schema
 
 ------------------------------------------------------------------------
@@ -1521,11 +1521,21 @@ unnecessary sensitive personal information.
 AuditLog events are append-only and immutable: an existing event must not
 be edited or deleted. A correction is a new audit event that identifies or
 references the original event and explains the correction; the original
-event is preserved. The existing `blockchainTransactionHash` field remains
-part of this documented structure, but an existing AuditLog event must
-never be mutated solely to attach or update blockchain proof information.
-How a transaction hash produced after event creation is associated with
-the event is not defined by this foundation.
+event is preserved. The original event is persisted with its fixed
+`recordHash`. Its blockchain proof may be submitted asynchronously through
+the blockchain logical-operation/transaction-tracking layer. That layer
+must associate the operation with the AuditLog event and its fixed
+`recordHash`; transaction hashes and lifecycle states belong to that
+tracking layer. Retries or replacements remain associated with the same
+logical operation and original event. A blockchain failure does not change
+the AuditLog event or count as confirmation. The complete audit record
+remains off-chain; only selected event hashes/references may be anchored.
+
+The documented `blockchainTransactionHash` field is retained, but it must
+not be treated as the authoritative location for a transaction hash that
+becomes available after the immutable AuditLog event is created. Its exact
+persistence and use semantics remain unresolved. The exact AuditLog fields
+included in its canonical hash also remain unresolved.
 
 ## Examples
 
@@ -1806,7 +1816,7 @@ transaction hashes.
 
 # 49. DATABASE STATUS
 
-Version 1.7 --- Active Planning Document. Revised to align with SRS v1.6, Business Rules v1.7, API v1.7 and Architecture v1.6. The schema now explicitly separates ownership, residence and membership, distinguishes platform-wide System Administrator accounts from society-scoped users, documents account setup and the defined User status lifecycle without adding credential fields, specifies unique login email identity, defines append-only AuditLog event semantics and target-based society scope, adds versioned society rules, approval evaluations and governance eligibility snapshots, and preserves historical decision context. The database schema must not be changed by an AI coding agent without considering the effects on:
+Version 1.8 --- Active Planning Document. Revised to align with SRS v1.6, Business Rules v1.7, API v1.7 and Architecture v1.7. The schema now explicitly separates ownership, residence and membership, distinguishes platform-wide System Administrator accounts from society-scoped users, documents account setup and the defined User status lifecycle without adding credential fields, specifies unique login email identity, defines append-only AuditLog event semantics and target-based society scope, assigns asynchronous AuditLog proof association and transaction lifecycle tracking to the blockchain operation layer, adds versioned society rules, approval evaluations and governance eligibility snapshots, and preserves historical decision context. The database schema must not be changed by an AI coding agent without considering the effects on:
 
 -   SRS
 -   BUSINESS_RULES.md

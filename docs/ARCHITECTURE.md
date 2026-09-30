@@ -1,7 +1,7 @@
 ## System Architecture Specification
 
 **Document:** `ARCHITECTURE.md`
-**Version:** 1.6
+**Version:** 1.7
 **Status:** Active Planning Document — Revised Governance, Rule Engine & Blockchain Architecture
 
 ---
@@ -891,20 +891,31 @@ Optional Blockchain Proof
 For selected events, the proof lifecycle is:
 
 ```
-Audit Event Created
+Persist immutable AuditLog event with fixed recordHash
  ↓
-Record Hash Calculated
+Create/associate blockchain logical operation where selected
  ↓
-Blockchain Proof Submitted where selected
+Submit and track transaction attempt(s) asynchronously
  ↓
-Blockchain Proof Confirmed where applicable
+Record confirmation only after blockchain confirmation
 ```
 
-No existing AuditLog record may be mutated solely to attach or update
-blockchain proof information. The existing `blockchainTransactionHash`
-field remains part of the documented AuditLog structure; how a transaction
-hash produced after event creation is associated with that event is not
-defined by this foundation.
+The blockchain logical-operation/transaction-tracking layer associates the
+operation and its attempts with the immutable AuditLog event and its fixed
+`recordHash`. Transaction hashes and transaction lifecycle states belong to
+that layer. Retries or replacements remain associated with the same logical
+operation and original event. A failure does not change the AuditLog event
+or count as confirmation. The complete audit record remains off-chain; only
+selected hashes/references may be anchored as an integrity proof.
+
+The original AuditLog event is never updated to attach, replace, or confirm
+blockchain proof information. The documented `blockchainTransactionHash`
+field remains, but is not the authoritative location for a transaction hash
+that becomes available after the event was persisted; its exact persistence
+and use semantics remain unresolved. Do not create a dedicated proof entity
+or blockchain-lifecycle AuditLog events unless a later specification
+decision requires them. The exact AuditLog canonical payload fields remain
+unresolved.
 
 ---
 
@@ -1194,5 +1205,5 @@ AI coding tools must:
 
 # 43. ARCHITECTURE STATUS
 
-Version 1.6 — Active Planning Document. Revised to align with SRS v1.6, Business Rules v1.7, API v1.7 and Database v1.7, explicitly introducing the modular-monolith domain structure, membership/eligibility layer, versioned rule configuration, Approval Engine, Governance Resolution architecture, blockchain transaction boundaries, separate platform/society authorization scopes, user-established initial credentials, persisted account-status authentication checks, and immutable AuditLog architecture.
+Version 1.7 — Active Planning Document. Revised to align with SRS v1.6, Business Rules v1.7, API v1.7 and Database v1.8, explicitly introducing the modular-monolith domain structure, membership/eligibility layer, versioned rule configuration, Approval Engine, Governance Resolution architecture, blockchain transaction boundaries, separate platform/society authorization scopes, user-established initial credentials, persisted account-status authentication checks, immutable AuditLog architecture, and asynchronous proof association through blockchain transaction tracking.
 Any major architectural change must update this document and the affected technical specifications.

@@ -1,6 +1,6 @@
 # BLOCKCHAIN.md
 
-**Version:** 1.2\
+**Version:** 1.3\
 **Status:** Active Planning Document --- Revised Governance & Integrity
 Architecture
 
@@ -252,11 +252,24 @@ Blockchain anchoring supports integrity/existence verification of the
 recorded commitment. It does not prove the underlying event's truth, legal
 validity, or correctness beyond the committed data.
 
-An existing AuditLog record must not be mutated solely to attach or update
-blockchain proof information. The original event remains unchanged. The
-documented `blockchainTransactionHash` field is retained; association of a
-transaction hash produced after event creation is not defined by this
-foundation.
+An AuditLog event is persisted off-chain with its fixed `recordHash` before
+any selected proof submission. Proof submission may happen asynchronously.
+The blockchain logical-operation/transaction-tracking layer associates the
+logical operation and its transaction attempts with the AuditLog event and
+that fixed hash. Transaction hashes and lifecycle states belong to this
+tracking layer. Retries or replacements remain associated with the same
+logical operation and original AuditLog event. A failure remains a failure
+in transaction tracking and must not be represented as confirmation.
+
+The original AuditLog event is never updated to attach, replace, or confirm
+proof information. Do not create blockchain-lifecycle AuditLog events merely
+for submission, pending, failure, retry, or confirmation states. The
+documented AuditLog `blockchainTransactionHash` field is retained, but is not
+the authoritative location for a hash that becomes available after event
+creation; its exact persistence and use semantics remain unresolved. No
+complete audit record is stored on-chain; only selected event hashes or
+references may be anchored. A commitment proves integrity/existence of the
+recorded reference, not the underlying event's truth or legal validity.
 
 ------------------------------------------------------------------------
 
@@ -663,7 +676,10 @@ A failed transaction must never be displayed as confirmed.
 
 # 22. LOGICAL OPERATION VS TRANSACTION
 
-A logical operation and a blockchain transaction are separate.
+A logical operation and a blockchain transaction are separate. For an
+AuditLog proof, the logical operation is associated with the immutable
+AuditLog event and its fixed `recordHash`; individual transaction attempts
+and their hashes remain in blockchain transaction tracking.
 
 ``` text
 Logical Approval A001
@@ -718,7 +734,9 @@ A changed payload must receive a new logical operation identity.
 
 # 24. DATABASE + BLOCKCHAIN CONSISTENCY
 
-MongoDB and blockchain are not one atomic transaction.
+MongoDB and blockchain are not one atomic transaction. For a selected
+AuditLog proof, the immutable event and fixed `recordHash` are persisted
+first; blockchain submission and transaction tracking follow asynchronously.
 
 ``` text
 Finalize application snapshot
@@ -731,11 +749,13 @@ PENDING
         ↓
 CONFIRMED
         ↓
-Store blockchain reference
+Associate confirmed blockchain reference in transaction tracking
 ```
 
-If submission fails, the application must retain the failure state and
-must not display the record as blockchain-confirmed.
+If submission fails, transaction tracking must retain the failure state and
+must not display the proof as blockchain-confirmed. The AuditLog event is
+unchanged; a permitted retry remains associated with the same logical
+operation and event.
 
 ------------------------------------------------------------------------
 
@@ -1248,12 +1268,15 @@ Tests
 
 # 43. BLOCKCHAIN STATUS
 
-**Version:** 1.2\
+**Version:** 1.3\
 **Status:** Active Planning Document
 
 This version aligns the blockchain layer with the revised membership,
 eligibility, rule-version, approval, quotation-versioning,
-governance-resolution, audit, and historical-integrity architecture.
+governance-resolution, audit, and historical-integrity architecture. It
+clarifies asynchronous AuditLog proof association through the blockchain
+logical-operation/transaction-tracking layer while preserving immutable
+off-chain audit events.
 
 The exact Solidity interface and on-chain payload schema must be frozen
 before smart-contract implementation.

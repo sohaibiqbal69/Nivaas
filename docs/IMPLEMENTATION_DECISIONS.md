@@ -2,7 +2,7 @@
 
 
 
-Version: 1.5
+Version: 1.6
 
 Status: Implementation Baseline
 
@@ -430,12 +430,27 @@ a genuinely platform-wide event with no society target may have no society
 ID. Platform-wide `SYSTEM_ADMIN` scope does not confer society membership
 or governance authority.
 
-AuditLog and complete audit history remain off-chain. Selected high-value
-audit-event hashes/references may be anchored on-chain. No existing
-AuditLog record may be mutated solely to attach or update blockchain proof
-information. The existing `blockchainTransactionHash` field is retained,
-but how a transaction hash produced after event creation is associated
-with that event remains unspecified.
+AuditLog and complete audit history remain off-chain. An immutable AuditLog
+event is persisted with its fixed `recordHash`; selected proof submission
+may happen asynchronously afterward. The blockchain logical-operation/
+transaction-tracking layer associates the operation and its transaction
+attempts with the AuditLog event and its fixed hash. Transaction hashes and
+lifecycle states belong to that tracking layer. Retries or replacements
+remain associated with the same logical operation and original event.
+Failures do not modify the AuditLog event and are not confirmations. The
+original event is never updated to attach, replace, or confirm proof
+information, and blockchain-lifecycle states do not create AuditLog events.
+Only selected hashes/references may be anchored; complete audit records
+remain off-chain.
+
+The existing AuditLog `blockchainTransactionHash` field is retained, but it
+must not be treated as the authoritative location for a hash that becomes
+available after the immutable event is created. Its exact persistence and
+use semantics remain unresolved. No dedicated proof entity is introduced
+by this decision. The exact AuditLog canonical payload fields, blockchain
+tracking persistence schema, which network/contract metadata must be retained
+with an event-level proof association, and API exposure of pending/failed
+proof state remain unresolved.
 
 Audit visibility retains the existing high-level role matrix. Actual access
 is server-authorized and subject to authentication, role authorization,
@@ -447,7 +462,10 @@ The following AuditLog questions remain unresolved:
 - Whether a single atomic action affecting multiple societies produces
   multiple audit events or another representation
 - How security-event logging for failed/denied attempts is handled
-- How a transaction hash produced after AuditLog event creation is
-  associated with the immutable event
+- The exact AuditLog canonical payload fields included in `recordHash`
+- The exact blockchain operation/transaction-tracking persistence schema
+- Which network/contract metadata must be retained with an event-level
+  proof association
+- The exact API exposure of pending/failed proof state
 - How system-generated events without a human actor are represented
 
