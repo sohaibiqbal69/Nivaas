@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "compile": "hardhat compile"
+    "compile": "node scripts/compile.cjs compile"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-ethers": "^3.1.0",
