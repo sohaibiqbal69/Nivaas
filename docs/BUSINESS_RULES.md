@@ -1,6 +1,6 @@
 # Business Rules Specification
 
-**Version:** 1.4 
+**Version:** 1.5 
 **Status:** Active — Planning Baseline
 **Planning Document** --- Revised Governance, Voting & Approval Rules 
 **Project:** Blockchain-Based Apartment Society Governance System
@@ -146,9 +146,25 @@ and governance/voting eligibility. The permitted lifecycle paths may include
 `PENDING_SETUP` to `ACTIVE`, `PENDING_SETUP` to `DISABLED`, and `ACTIVE` to
 `DISABLED`; these paths do not define a complete status-transition policy.
 
-Setup-token expiry, password complexity, forgot-password behavior, user
-profile fields editable through `PATCH /users/:id`, exact status-transition
-permissions, and the audit implementation remain unspecified.
+Setup-token expiry, password complexity, forgot-password behavior, exact
+status-transition permissions, and the audit implementation remain
+unspecified.
+
+## User Profile and Account-Information Updates
+
+`PATCH /users/:id` is limited to profile/account-information updates. The
+only editable fields are `name`, `email`, `phone`, and `walletAddress`.
+Changing role, status, password, or society association through this
+endpoint is not permitted; the dedicated role and status endpoints are used
+for their respective changes. Identifiers and system-managed timestamps
+are not client-controlled.
+
+Login email is an account identity and must remain unique across user
+accounts. Changing it does not itself change a user's role, society,
+membership, ownership, residence/occupancy, committee membership, or
+governance eligibility. Editing a wallet address does not grant governance
+or voting rights. Email verification, reauthentication, password reset, and
+notification behavior are not defined by this rule.
 
 ---
 
@@ -1612,11 +1628,12 @@ Quotation Revision?
 
 # 66. BUSINESS RULE STATUS
 
-**Current status:** Planning baseline, revised to v1.4.
+**Current status:** Planning baseline, revised to v1.5.
 
 This version separates membership, ownership, residence and governance
 eligibility; establishes the platform-wide technical scope of
-`SYSTEM_ADMIN` and specifies initial account setup credentials; makes
+`SYSTEM_ADMIN`, specifies initial account setup credentials and permitted
+user profile/account-information updates; makes
 approval and meeting rules configurable/versioned;
 defines a concrete prototype governance baseline where the reviewed rules
 support it; and preserves historical decision integrity.

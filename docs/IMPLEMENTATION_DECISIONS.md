@@ -2,7 +2,7 @@
 
 
 
-Version: 1.2
+Version: 1.3
 
 Status: Implementation Baseline
 
@@ -364,9 +364,23 @@ implementation:
 - Password complexity requirements
 - Forgot-password flow
 - Email provider or delivery implementation
-- Editable fields for `PATCH /users/:id`
 - Exact status-transition permissions
 - Audit implementation
+- Email identity case/normalization policy
+- Email verification, reauthentication, or notification behavior
+
+## 8. User Profile and Account-Information Update Fields
+
+`PATCH /users/:id` is limited to these fields: `name`, `email`, `phone`,
+and `walletAddress`. It must not modify `_id`, `societyId`, `role`, `status`,
+`passwordHash`, `createdAt`, or `updatedAt`. Role and status changes use
+their dedicated endpoints; password changes are outside this endpoint.
+
+Login email must be unique across user accounts. Changing email does not
+change role, society, membership, ownership, residence/occupancy, committee
+membership, or governance eligibility. Editing `walletAddress` does not
+grant governance or voting rights. This decision does not define email
+verification, reauthentication, password reset, or notification behavior.
 
 The documented possible lifecycle paths are `PENDING_SETUP` to `ACTIVE`,
 `PENDING_SETUP` to `DISABLED`, and `ACTIVE` to `DISABLED`. They do not

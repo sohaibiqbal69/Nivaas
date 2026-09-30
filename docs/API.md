@@ -1,6 +1,6 @@
 ## REST API Specification
 
-**Document:** `API.md` **Version:** 1.4 **Base URL:** `/api` **Status:**
+**Document:** `API.md` **Version:** 1.5 **Base URL:** `/api` **Status:**
 Active Planning Document — Revised Membership, Rule Configuration,
 Approval & Governance APIs
 
@@ -206,7 +206,28 @@ committee membership, and governance/voting eligibility.
 
 ## PATCH `/users/:id`
 
-Update permitted user information.
+Update permitted user profile/account information only. The editable fields
+are exactly:
+
+- `name`
+- `email`
+- `phone`
+- `walletAddress`
+
+This endpoint must not modify `_id`, `societyId`, `role`, `status`,
+`passwordHash`, `createdAt`, or `updatedAt`. Role changes use
+`PATCH /users/:id/role`; account status changes use
+`PATCH /users/:id/status`. Password changes are not performed through this
+endpoint. System-managed identifiers and timestamps are not client-
+controlled.
+
+The backend must enforce the existing account identity uniqueness
+requirement when an email is changed and must not allow two accounts to use
+the same login email. An email change does not change the user's role,
+society, membership, ownership, residence, committee membership, or
+governance eligibility. Editing `walletAddress` does not grant governance
+or voting rights. This policy does not define email verification,
+reauthentication, password reset, or notification behavior.
 
 ------------------------------------------------------------------------
 
@@ -1683,10 +1704,10 @@ Whenever an API changes, the AI developer must update:
 
 # 39. API STATUS
 
-Version 1.4 — Active Planning Document.
+Version 1.5 — Active Planning Document.
 
-Revised to align with SRS v1.3, Business Rules v1.4, Architecture v1.4 and
-Database v1.4. The API now explicitly supports the membership/eligibility
+Revised to align with SRS v1.4, Business Rules v1.5, Architecture v1.4 and
+Database v1.5. The API now explicitly supports the membership/eligibility
 layer, versioned governance configuration, approval re-evaluation,
 meeting/quorum workflows, governance-result finalization and retry-safe
 critical operations.

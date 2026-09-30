@@ -1,6 +1,6 @@
 ## Database Specification
 
-**Document:** `DATABASE.md` **Version:** 1.4 **Database:** MongoDB
+**Document:** `DATABASE.md` **Version:** 1.5 **Database:** MongoDB
 **Status:** Active Planning Document --- Revised Governance, Membership & Rule Versioning Schema
 
 ------------------------------------------------------------------------
@@ -189,6 +189,14 @@ establish a password. It cannot be reused after successful consumption or
 invalidation, and the administrator does not receive or set the permanent
 password. No additional credential field, storage representation, expiry,
 or delivery mechanism is defined by this database specification.
+
+`email` is a unique login identity across user accounts. The case and
+normalization policy used to determine email identity is not specified.
+The permitted profile/account-information update fields are `name`,
+`email`, `phone`, and `walletAddress`; this does not add fields to the User
+entity. The API/business rules define that `_id`, `societyId`, `role`,
+`status`, `passwordHash`, `createdAt`, and `updatedAt` are not editable
+through `PATCH /users/:id`.
 
 ## Role
 
@@ -1639,7 +1647,7 @@ transaction is confirmed.
 Indexes should be created for frequently queried fields. Potential
 indexes:
 
-    users.email
+    users.email (unique)
     users.societyId
 
     memberships.societyId + memberships.userId
@@ -1759,7 +1767,7 @@ transaction hashes.
 
 # 49. DATABASE STATUS
 
-Version 1.4 --- Active Planning Document. Revised to align with SRS v1.3, Business Rules v1.4 and Architecture v1.4. The schema now explicitly separates ownership, residence and membership, distinguishes platform-wide System Administrator accounts from society-scoped users, documents pending account setup without adding credential fields, adds versioned society rules, approval evaluations and governance eligibility snapshots, and preserves historical decision context. The database schema must not be changed by an AI coding agent without considering the effects on:
+Version 1.5 --- Active Planning Document. Revised to align with SRS v1.4, Business Rules v1.5, API v1.5 and Architecture v1.4. The schema now explicitly separates ownership, residence and membership, distinguishes platform-wide System Administrator accounts from society-scoped users, documents pending account setup without adding credential fields, specifies unique login email identity, adds versioned society rules, approval evaluations and governance eligibility snapshots, and preserves historical decision context. The database schema must not be changed by an AI coding agent without considering the effects on:
 
 -   SRS
 -   BUSINESS_RULES.md

@@ -1,7 +1,7 @@
 # Software Requirements Specification
 
 **Document:** `SRS.md`\
-**Version:** 1.3\
+**Version:** 1.4\
 **Status:** Active Planning Specification\
 **Project:** Nivaas --- Blockchain-Based Apartment Society
 Governance System
@@ -367,6 +367,23 @@ Account setup shall remain separate from ownership, residence/occupancy,
 society membership, committee membership, and governance/voting eligibility.
 Credential delivery is implementation-specific and is not defined by the
 core user API.
+
+## FR-USER-008
+
+`PATCH /users/:id` shall permit updates only to `name`, `email`, `phone`,
+and `walletAddress`. It shall not permit modification of `_id`, `societyId`,
+`role`, `status`, `passwordHash`, `createdAt`, or `updatedAt`. Role and
+status changes shall use their dedicated endpoints; password changes shall
+not use this endpoint.
+
+## FR-USER-009
+
+The backend shall prevent two user accounts from using the same login
+email. An email change shall not itself change role, society, membership,
+ownership, residence/occupancy, committee membership, or governance
+eligibility. Editing `walletAddress` shall not grant governance or voting
+rights. Email verification, reauthentication, password reset, and
+notification behavior are not defined by this requirement.
 
 ------------------------------------------------------------------------
 
@@ -2324,7 +2341,7 @@ Blockchain Verification
 
 # 57. SRS STATUS
 
-**Version:** 1.3\
+**Version:** 1.4\
 **Status:** Active Planning Specification
 
 This version incorporates the current approved business-rule decisions
