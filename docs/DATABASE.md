@@ -1,6 +1,6 @@
 ## Database Specification
 
-**Document:** `DATABASE.md` **Version:** 1.6 **Database:** MongoDB
+**Document:** `DATABASE.md` **Version:** 1.7 **Database:** MongoDB
 **Status:** Active Planning Document --- Revised Governance, Membership & Rule Versioning Schema
 
 ------------------------------------------------------------------------
@@ -1504,6 +1504,29 @@ Stores metadata about uploaded photographs/documents.
     blockchainTransactionHash
     createdAt
 
+`_id` identifies the audit event. `actorId` identifies the user responsible
+for the action, and `createdAt` records its timestamp. `societyId` is based
+on the target resource/action: it identifies the society for a
+society-scoped event and may be null for a genuinely platform-wide event
+with no society target. It is not derived from the actor's role. A
+platform-wide `SYSTEM_ADMIN` action on a society resource records that
+resource's society without making the actor a society member.
+
+`previousState` and `newState` represent only state relevant to the
+particular audited event, not automatically complete entity snapshots.
+Audit payloads must not contain passwords, password hashes, account-setup
+credentials/tokens, JWTs, secrets, complete personal profiles, or
+unnecessary sensitive personal information.
+
+AuditLog events are append-only and immutable: an existing event must not
+be edited or deleted. A correction is a new audit event that identifies or
+references the original event and explains the correction; the original
+event is preserved. The existing `blockchainTransactionHash` field remains
+part of this documented structure, but an existing AuditLog event must
+never be mutated solely to attach or update blockchain proof information.
+How a transaction hash produced after event creation is associated with
+the event is not defined by this foundation.
+
 ## Examples
 
     PROJECT_CREATED
@@ -1783,7 +1806,7 @@ transaction hashes.
 
 # 49. DATABASE STATUS
 
-Version 1.6 --- Active Planning Document. Revised to align with SRS v1.5, Business Rules v1.6, API v1.6 and Architecture v1.5. The schema now explicitly separates ownership, residence and membership, distinguishes platform-wide System Administrator accounts from society-scoped users, documents account setup and the defined User status lifecycle without adding credential fields, specifies unique login email identity, adds versioned society rules, approval evaluations and governance eligibility snapshots, and preserves historical decision context. The database schema must not be changed by an AI coding agent without considering the effects on:
+Version 1.7 --- Active Planning Document. Revised to align with SRS v1.6, Business Rules v1.7, API v1.7 and Architecture v1.6. The schema now explicitly separates ownership, residence and membership, distinguishes platform-wide System Administrator accounts from society-scoped users, documents account setup and the defined User status lifecycle without adding credential fields, specifies unique login email identity, defines append-only AuditLog event semantics and target-based society scope, adds versioned society rules, approval evaluations and governance eligibility snapshots, and preserves historical decision context. The database schema must not be changed by an AI coding agent without considering the effects on:
 
 -   SRS
 -   BUSINESS_RULES.md

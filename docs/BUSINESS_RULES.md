@@ -1,6 +1,6 @@
 # Business Rules Specification
 
-**Version:** 1.6 
+**Version:** 1.7 
 **Status:** Active — Planning Baseline
 **Planning Document** --- Revised Governance, Voting & Approval Rules 
 **Project:** Blockchain-Based Apartment Society Governance System
@@ -145,8 +145,8 @@ ownership, residence/occupancy, society membership, committee membership,
 and governance/voting eligibility. Account status values and permitted
 lifecycle transitions are defined in the User Account Status Policy below.
 
-Setup-token expiry, password complexity, forgot-password behavior, and the
-audit implementation remain unspecified.
+Setup-token expiry, password complexity, forgot-password behavior, and
+account-setup-specific audit behavior remain unspecified.
 
 ## User Account Status Policy
 
@@ -1385,6 +1385,12 @@ Owners/Residents cannot modify official notices.
 
 Important system actions must create an audit record. Examples:
 
+- User role changes
+- Important society setting changes
+- Governance-rule version creation
+- Important membership changes
+- Material governance-resolution edits
+- Applicable evidence deletions
 - Project created
 - Project submitted
 - Quotation uploaded
@@ -1399,15 +1405,46 @@ Important system actions must create an audit record. Examples:
 - Notice published
 - Payment recorded
 
+Every successful User account status transition must create an AuditLog
+event, including each transition permitted by the User Account Status
+Policy. This requirement does not require every user profile edit to be
+audited. Failed or denied attempts are not mandatory AuditLog events under
+this rule; security-event logging for those attempts remains unresolved.
+
 ---
 
 # 54. AUDIT IMMUTABILITY
 
 ## BR-AUDIT-002
 
-Important historical audit records must not be silently deleted or
-modified. Where appropriate, the system should use blockchain
-hashes/references to provide additional verification.
+AuditLog events are append-only and immutable. An existing event must not
+be edited, silently deleted, or mutated merely because later information
+becomes available. If an event is incorrect, a new append-only correction
+event must identify/reference the original and explain the correction; the
+original event must be preserved. Where appropriate, blockchain
+hashes/references provide additional verification without mutating the
+existing event.
+
+## BR-AUDIT-003 — Audit Payload, Scope, and Operational Logs
+
+Audit state payloads contain only state relevant to the event, not
+automatically complete entity snapshots. They must not contain passwords,
+password hashes, account-setup credentials/tokens, JWTs, secrets, complete
+personal profiles, or unnecessary sensitive personal information. Audit
+events do not add actor-role, outcome, request-ID, or correlation-ID fields
+unless a later specification explicitly requires them.
+
+The audit event's `societyId` follows the target resource/action. It is the
+target society for society-scoped actions and may be null for a genuinely
+platform-wide action with no society target. A platform administrator's
+role does not make them a society member. A cross-society administrative
+action records each target society on its society-scoped event. A single
+atomic action affecting multiple societies is not defined here.
+
+AuditLog is durable business/security history for selected important
+actions. Application/server logs contain operational diagnostics,
+debugging, and request/runtime information; they are not authoritative
+business history and do not replace AuditLog.
 
 ---
 
@@ -1487,8 +1524,9 @@ administrators.
 
 ## BR-HISTORY-001
 
-Important historical records must use append/update-with-history
-patterns rather than destructive overwriting. This applies especially
+Important historical records must use append-only or update-with-history
+patterns rather than destructive overwriting. AuditLog corrections use a
+new event and never alter the original. This applies especially
 to:
 
 - Quotations
@@ -1661,12 +1699,12 @@ Quotation Revision?
 
 # 66. BUSINESS RULE STATUS
 
-**Current status:** Planning baseline, revised to v1.6.
+**Current status:** Planning baseline, revised to v1.7.
 
 This version separates membership, ownership, residence and governance
 eligibility; establishes the platform-wide technical scope of
-`SYSTEM_ADMIN`, specifies initial account setup credentials and permitted
-user profile/account-information updates; makes
+`SYSTEM_ADMIN`, specifies initial account setup credentials, permitted
+user profile/account-information updates, and the AuditLog foundation; makes
 approval and meeting rules configurable/versioned;
 defines a concrete prototype governance baseline where the reviewed rules
 support it; and preserves historical decision integrity.

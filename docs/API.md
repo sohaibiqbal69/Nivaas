@@ -1,6 +1,6 @@
 ## REST API Specification
 
-**Document:** `API.md` **Version:** 1.6 **Base URL:** `/api` **Status:**
+**Document:** `API.md` **Version:** 1.7 **Base URL:** `/api` **Status:**
 Active Planning Document — Revised Membership, Rule Configuration,
 Approval & Governance APIs
 
@@ -250,6 +250,7 @@ or disable the last `ACTIVE` System Administrator account. Status changes
 do not themselves change society membership, ownership, residence/
 occupancy, committee membership, or governance/voting eligibility. A
 disabled account and its historical/domain relationships are retained.
+Every successful status transition must create an AuditLog event.
 
 ------------------------------------------------------------------------
 
@@ -1467,6 +1468,14 @@ destructively deleted.
 
 Return audit records permitted to the current user.
 
+Audit access is server-authorized and subject to society/resource
+isolation and applicable business rules. The high-level role visibility
+baseline appears in the authorization matrix below; it does not define
+detailed endpoint permissions. Audit records are read-only. Corrections are
+represented by a new audit event that identifies the original event; the
+original event is not modified or deleted. No audit-write or correction
+request schema is defined here.
+
 ------------------------------------------------------------------------
 
 ## GET `/audit/:entityType/:entityId`
@@ -1474,6 +1483,8 @@ Return audit records permitted to the current user.
 Return history for a specific entity. Example:
 
     GET /audit/project/P001
+
+The same authorization, isolation, and immutability requirements apply.
 
 ------------------------------------------------------------------------
 
@@ -1715,10 +1726,10 @@ Whenever an API changes, the AI developer must update:
 
 # 39. API STATUS
 
-Version 1.6 — Active Planning Document.
+Version 1.7 — Active Planning Document.
 
-Revised to align with SRS v1.5, Business Rules v1.6, Architecture v1.5 and
-Database v1.6. The API now explicitly supports the membership/eligibility
+Revised to align with SRS v1.6, Business Rules v1.7, Architecture v1.6 and
+Database v1.7. The API now explicitly supports the membership/eligibility
 layer, versioned governance configuration, approval re-evaluation,
 meeting/quorum workflows, governance-result finalization and retry-safe
 critical operations.

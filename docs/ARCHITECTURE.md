@@ -1,7 +1,7 @@
 ## System Architecture Specification
 
 **Document:** `ARCHITECTURE.md`
-**Version:** 1.5
+**Version:** 1.6
 **Status:** Active Planning Document — Revised Governance, Rule Engine & Blockchain Architecture
 
 ---
@@ -854,7 +854,29 @@ Cloud/object storage can be introduced later without changing the application's 
 
 # 29. AUDIT ARCHITECTURE
 
-Important actions generate audit records.
+AuditLog is durable business/security history for selected important
+actions and state changes. It identifies the actor, affected resource, and
+time, preserves important historical events, and supports later integrity
+verification for selected events. It does not replace domain records,
+determine governance outcomes, act as the governance engine, or replace
+ordinary application/server logs.
+
+Application/server logs serve operational diagnostics, debugging, and
+request/runtime information. They are not authoritative business history
+and do not replace AuditLog.
+
+AuditLog events are append-only and immutable. An incorrect event is
+corrected through a new event that identifies/references the original and
+explains the correction; the original is preserved. Audit payloads contain
+only relevant changed state, not complete entity snapshots by default, and
+exclude passwords, password hashes, setup credentials/tokens, JWTs, secrets,
+complete personal profiles, and unnecessary sensitive personal information.
+
+The `societyId` on an audit event follows the target resource/action. A
+society-scoped action identifies its society; a genuinely platform-wide
+action with no society target may have no society ID. Platform-wide scope
+does not confer society membership or governance authority on
+`SYSTEM_ADMIN`.
 
 ```
 Action
@@ -866,19 +888,23 @@ Database Audit Record
 Optional Blockchain Proof
 ```
 
-Example:
+For selected events, the proof lifecycle is:
 
 ```
-Project Approved
+Audit Event Created
  ↓
-Audit Record
+Record Hash Calculated
  ↓
-Blockchain Transaction
+Blockchain Proof Submitted where selected
  ↓
-Transaction Hash
- ↓
-Audit Record Updated
+Blockchain Proof Confirmed where applicable
 ```
+
+No existing AuditLog record may be mutated solely to attach or update
+blockchain proof information. The existing `blockchainTransactionHash`
+field remains part of the documented AuditLog structure; how a transaction
+hash produced after event creation is associated with that event is not
+defined by this foundation.
 
 ---
 
@@ -1168,5 +1194,5 @@ AI coding tools must:
 
 # 43. ARCHITECTURE STATUS
 
-Version 1.5 — Active Planning Document. Revised to align with SRS v1.5, Business Rules v1.6 and API v1.6, explicitly introducing the modular-monolith domain structure, membership/eligibility layer, versioned rule configuration, Approval Engine, Governance Resolution architecture, blockchain transaction boundaries, separate platform/society authorization scopes, user-established initial credentials, and persisted account-status authentication checks.
+Version 1.6 — Active Planning Document. Revised to align with SRS v1.6, Business Rules v1.7, API v1.7 and Database v1.7, explicitly introducing the modular-monolith domain structure, membership/eligibility layer, versioned rule configuration, Approval Engine, Governance Resolution architecture, blockchain transaction boundaries, separate platform/society authorization scopes, user-established initial credentials, persisted account-status authentication checks, and immutable AuditLog architecture.
 Any major architectural change must update this document and the affected technical specifications.

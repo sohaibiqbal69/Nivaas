@@ -1,6 +1,6 @@
 # BLOCKCHAIN.md
 
-**Version:** 1.1\
+**Version:** 1.2\
 **Status:** Active Planning Document --- Revised Governance & Integrity
 Architecture
 
@@ -244,6 +244,19 @@ PROJECT_COMPLETED
 ```
 
 Not every CRUD event should become a blockchain transaction.
+
+AuditLog and complete audit history remain off-chain. Only selected
+high-value audit-event hashes/references may be anchored on-chain; complete
+audit records and personal information must not be stored on-chain.
+Blockchain anchoring supports integrity/existence verification of the
+recorded commitment. It does not prove the underlying event's truth, legal
+validity, or correctness beyond the committed data.
+
+An existing AuditLog record must not be mutated solely to attach or update
+blockchain proof information. The original event remains unchanged. The
+documented `blockchainTransactionHash` field is retained; association of a
+transaction hash produced after event creation is not defined by this
+foundation.
 
 ------------------------------------------------------------------------
 
@@ -1235,7 +1248,7 @@ Tests
 
 # 43. BLOCKCHAIN STATUS
 
-**Version:** 1.1\
+**Version:** 1.2\
 **Status:** Active Planning Document
 
 This version aligns the blockchain layer with the revised membership,

@@ -1,7 +1,7 @@
 # Software Requirements Specification
 
 **Document:** `SRS.md`\
-**Version:** 1.5\
+**Version:** 1.6\
 **Status:** Active Planning Specification\
 **Project:** Nivaas --- Blockchain-Based Apartment Society
 Governance System
@@ -1485,16 +1485,41 @@ Audit entries shall include timestamps.
 
 ## FR-AUDIT-005
 
-Important audit records shall be protected from silent modification.
+AuditLog events shall be append-only and immutable. Corrections shall be
+recorded as new audit events that identify/reference the original event and
+explain the correction; the original event shall be preserved.
 
 ## FR-AUDIT-006
 
 The system shall support blockchain transaction references in audit
 records.
 
+An existing AuditLog record shall not be mutated solely to attach or
+update blockchain proof information.
+
 ## FR-AUDIT-007
 
 Governance configuration changes shall be auditable.
+
+## FR-AUDIT-008
+
+Every successful User account status transition shall create an AuditLog
+event.
+
+## FR-AUDIT-009
+
+The system shall distinguish AuditLog durable business/security history
+from application/server operational and debugging logs. Application/server
+logs shall not replace AuditLog.
+
+## FR-AUDIT-010
+
+Audit event society scope shall be determined by its target resource/action,
+not the actor's role. A society-scoped event shall identify the target
+society; a genuinely platform-wide event with no society target may have no
+society identifier. Audit visibility shall remain server-authorized and
+subject to authentication, role authorization, society/resource isolation,
+and applicable business rules.
 
 ------------------------------------------------------------------------
 

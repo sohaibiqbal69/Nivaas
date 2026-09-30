@@ -2,7 +2,7 @@
 
 
 
-Version: 1.4
+Version: 1.5
 
 Status: Implementation Baseline
 
@@ -364,7 +364,6 @@ implementation:
 - Password complexity requirements
 - Forgot-password flow
 - Email provider or delivery implementation
-- Audit implementation
 - Email identity case/normalization policy
 - Email verification, reauthentication, or notification behavior
 
@@ -406,4 +405,49 @@ permitted.
 The target-selection contract for platform-wide access through the
 singular `/society` routes is also unspecified. Do not infer a target from a
 client-supplied `societyId`.
+
+## 10. AuditLog Foundation
+
+AuditLog is durable business/security history for selected important
+actions and state changes. It does not replace domain records, determine
+governance outcomes, act as the governance engine, or replace operational
+application/server logs.
+
+Existing AuditLog events are append-only and immutable. Corrections are
+new append-only events that identify/reference the original and explain
+the correction. The original event is preserved. Every successful User
+account status transition is audited. Existing mandatory audit events
+remain in force. Failed/denied attempts are not made mandatory AuditLog
+events by this decision, and not every user profile edit is required to be
+audited.
+
+The existing AuditLog fields remain the documented structure; no
+actor-role, outcome, request-ID, or correlation-ID fields are added. State
+payloads contain only event-relevant state and exclude credentials, secrets,
+complete personal profiles, and unnecessary sensitive personal
+information. The event's society scope follows the target resource/action;
+a genuinely platform-wide event with no society target may have no society
+ID. Platform-wide `SYSTEM_ADMIN` scope does not confer society membership
+or governance authority.
+
+AuditLog and complete audit history remain off-chain. Selected high-value
+audit-event hashes/references may be anchored on-chain. No existing
+AuditLog record may be mutated solely to attach or update blockchain proof
+information. The existing `blockchainTransactionHash` field is retained,
+but how a transaction hash produced after event creation is associated
+with that event remains unspecified.
+
+Audit visibility retains the existing high-level role matrix. Actual access
+is server-authorized and subject to authentication, role authorization,
+society/resource isolation, and applicable business rules. The matrix does
+not define detailed endpoint permissions.
+
+The following AuditLog questions remain unresolved:
+
+- Whether a single atomic action affecting multiple societies produces
+  multiple audit events or another representation
+- How security-event logging for failed/denied attempts is handled
+- How a transaction hash produced after AuditLog event creation is
+  associated with the immutable event
+- How system-generated events without a human actor are represented
 
