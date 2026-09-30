@@ -10,6 +10,8 @@ export type BackendConfig = {
   port: number;
   mongoUri?: string;
   corsOrigin?: string;
+  jwtSecret?: string;
+  jwtAccessTokenTtlSeconds?: number;
 };
 
 export function readBackendConfig(environment: NodeJS.ProcessEnv = process.env): BackendConfig {
@@ -21,10 +23,21 @@ export function readBackendConfig(environment: NodeJS.ProcessEnv = process.env):
 
   const mongoUri = environment.MONGODB_URI?.trim();
   const corsOrigin = environment.CORS_ORIGIN?.trim();
+  const jwtSecret = environment.JWT_SECRET?.trim();
+  const rawJwtTtl = environment.JWT_ACCESS_TOKEN_TTL_SECONDS?.trim();
+  let jwtAccessTokenTtlSeconds: number | undefined;
+  if (rawJwtTtl) {
+    jwtAccessTokenTtlSeconds = Number(rawJwtTtl);
+    if (!Number.isInteger(jwtAccessTokenTtlSeconds) || jwtAccessTokenTtlSeconds < 1) {
+      throw new Error('JWT_ACCESS_TOKEN_TTL_SECONDS must be a positive integer.');
+    }
+  }
   return {
     port,
     ...(mongoUri ? { mongoUri } : {}),
     ...(corsOrigin ? { corsOrigin } : {}),
+    ...(jwtSecret ? { jwtSecret } : {}),
+    ...(jwtAccessTokenTtlSeconds ? { jwtAccessTokenTtlSeconds } : {}),
   };
 }
 
