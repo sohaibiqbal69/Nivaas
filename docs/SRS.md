@@ -1,7 +1,7 @@
 # Software Requirements Specification
 
 **Document:** `SRS.md`\
-**Version:** 1.4\
+**Version:** 1.5\
 **Status:** Active Planning Specification\
 **Project:** Nivaas --- Blockchain-Based Apartment Society
 Governance System
@@ -348,9 +348,10 @@ permission changes.
 
 When the System Administrator creates an account, the request shall not
 accept a permanent password or `passwordHash`. A newly created account
-shall enter pending setup. Its possible lifecycle paths may include
-`PENDING_SETUP` to `ACTIVE`, `PENDING_SETUP` to `DISABLED`, and `ACTIVE` to
-`DISABLED`; this is not a complete status enum or transition policy.
+shall enter `PENDING_SETUP`. User account status shall have exactly these
+values: `PENDING_SETUP`, `ACTIVE`, and `DISABLED`. The permitted lifecycle
+transitions are `PENDING_SETUP` to `ACTIVE`, `PENDING_SETUP` to `DISABLED`,
+`ACTIVE` to `DISABLED`, and `DISABLED` to `ACTIVE`.
 
 ## FR-USER-006
 
@@ -384,6 +385,29 @@ ownership, residence/occupancy, committee membership, or governance
 eligibility. Editing `walletAddress` shall not grant governance or voting
 rights. Email verification, reauthentication, password reset, and
 notification behavior are not defined by this requirement.
+
+## FR-USER-010
+
+An account in `PENDING_SETUP` shall not authenticate with a normal password
+or access protected application APIs. It may use only the future account-
+setup mechanism once that API is specified, and shall become `ACTIVE` only
+after successful account setup.
+
+## FR-USER-011
+
+A `DISABLED` account shall not authenticate or access protected application
+APIs. Persisted `User.status` shall be authoritative; possession of a JWT
+shall not override `PENDING_SETUP` or `DISABLED` status.
+
+## FR-USER-012
+
+Only `SYSTEM_ADMIN` shall administer account status. A System Administrator
+shall not disable their own account or the last `ACTIVE` System
+Administrator account. Status changes shall not themselves grant or revoke
+society membership, ownership, residence/occupancy, committee membership,
+or governance/voting eligibility. Disabling an account shall not delete the
+User or associated historical/domain relationships. No account status
+values beyond those defined in FR-USER-005 are permitted.
 
 ------------------------------------------------------------------------
 
@@ -2341,7 +2365,7 @@ Blockchain Verification
 
 # 57. SRS STATUS
 
-**Version:** 1.4\
+**Version:** 1.5\
 **Status:** Active Planning Specification
 
 This version incorporates the current approved business-rule decisions

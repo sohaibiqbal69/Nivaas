@@ -1,7 +1,7 @@
 ## System Architecture Specification
 
 **Document:** `ARCHITECTURE.md`
-**Version:** 1.4
+**Version:** 1.5
 **Status:** Active Planning Document — Revised Governance, Rule Engine & Blockchain Architecture
 
 ---
@@ -401,6 +401,13 @@ membership, or governance/voting eligibility. The administrator does not
 receive or set a user's permanent password.
 
 The basic authentication flow is:
+
+Before issuing authentication or authorizing a protected API request, the
+backend must use the persisted User status as the account-state authority.
+Only `ACTIVE` accounts can authenticate or access protected APIs. A
+previously issued JWT cannot override `PENDING_SETUP` or `DISABLED` status.
+The later authentication implementation must apply this check; this
+specification update does not change the current implementation.
 
 ```
 User
@@ -1161,5 +1168,5 @@ AI coding tools must:
 
 # 43. ARCHITECTURE STATUS
 
-Version 1.4 — Active Planning Document. Revised to align with SRS v1.3 and Business Rules v1.4, explicitly introducing the modular-monolith domain structure, membership/eligibility layer, versioned rule configuration, Approval Engine, Governance Resolution architecture, blockchain transaction boundaries, separate platform/society authorization scopes, and user-established initial credentials.
+Version 1.5 — Active Planning Document. Revised to align with SRS v1.5, Business Rules v1.6 and API v1.6, explicitly introducing the modular-monolith domain structure, membership/eligibility layer, versioned rule configuration, Approval Engine, Governance Resolution architecture, blockchain transaction boundaries, separate platform/society authorization scopes, user-established initial credentials, and persisted account-status authentication checks.
 Any major architectural change must update this document and the affected technical specifications.

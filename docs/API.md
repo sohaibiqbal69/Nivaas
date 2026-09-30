@@ -1,6 +1,6 @@
 ## REST API Specification
 
-**Document:** `API.md` **Version:** 1.5 **Base URL:** `/api` **Status:**
+**Document:** `API.md` **Version:** 1.6 **Base URL:** `/api` **Status:**
 Active Planning Document — Revised Membership, Rule Configuration,
 Approval & Governance APIs
 
@@ -129,6 +129,12 @@ the request body.
 
 Authenticate a user.
 
+Only a user whose persisted account status is `ACTIVE` may authenticate.
+`PENDING_SETUP` accounts cannot authenticate with a normal password, and
+`DISABLED` accounts cannot authenticate. A previously issued JWT does not
+override a persisted `PENDING_SETUP` or `DISABLED` status when accessing a
+protected API.
+
 ### Request
 
     {
@@ -233,12 +239,17 @@ reauthentication, password reset, or notification behavior.
 
 ## PATCH `/users/:id/status`
 
-Enable/disable a user.
+Change a user's account status. Only `SYSTEM_ADMIN` is authorized to
+administer account status. The permitted status values and lifecycle are
+defined in the User Account Status Policy in `BUSINESS_RULES.md` and the
+User entity in `DATABASE.md`. No request or response schema is defined here.
 
-The System Administrator may disable accounts under `BR-ROLE-001`; that
-administrative scope may cross societies. The endpoint does not define the
-status values or transition rules, nor does this specification separately
-assign the permission to enable an account.
+The platform-wide System Administrator may administer account status
+across societies. A System Administrator cannot disable their own account
+or disable the last `ACTIVE` System Administrator account. Status changes
+do not themselves change society membership, ownership, residence/
+occupancy, committee membership, or governance/voting eligibility. A
+disabled account and its historical/domain relationships are retained.
 
 ------------------------------------------------------------------------
 
@@ -1704,10 +1715,10 @@ Whenever an API changes, the AI developer must update:
 
 # 39. API STATUS
 
-Version 1.5 — Active Planning Document.
+Version 1.6 — Active Planning Document.
 
-Revised to align with SRS v1.4, Business Rules v1.5, Architecture v1.4 and
-Database v1.5. The API now explicitly supports the membership/eligibility
+Revised to align with SRS v1.5, Business Rules v1.6, Architecture v1.5 and
+Database v1.6. The API now explicitly supports the membership/eligibility
 layer, versioned governance configuration, approval re-evaluation,
 meeting/quorum workflows, governance-result finalization and retry-safe
 critical operations.

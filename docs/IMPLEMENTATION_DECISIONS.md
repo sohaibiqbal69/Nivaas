@@ -2,7 +2,7 @@
 
 
 
-Version: 1.3
+Version: 1.4
 
 Status: Implementation Baseline
 
@@ -364,7 +364,6 @@ implementation:
 - Password complexity requirements
 - Forgot-password flow
 - Email provider or delivery implementation
-- Exact status-transition permissions
 - Audit implementation
 - Email identity case/normalization policy
 - Email verification, reauthentication, or notification behavior
@@ -382,9 +381,27 @@ membership, or governance eligibility. Editing `walletAddress` does not
 grant governance or voting rights. This decision does not define email
 verification, reauthentication, password reset, or notification behavior.
 
-The documented possible lifecycle paths are `PENDING_SETUP` to `ACTIVE`,
-`PENDING_SETUP` to `DISABLED`, and `ACTIVE` to `DISABLED`. They do not
-constitute a complete status enum or transition policy.
+## 9. User Account Status Policy
+
+The only User account status values are `PENDING_SETUP`, `ACTIVE`, and
+`DISABLED`. The permitted transitions are `PENDING_SETUP` to `ACTIVE`,
+`PENDING_SETUP` to `DISABLED`, `ACTIVE` to `DISABLED`, and `DISABLED` to
+`ACTIVE`.
+
+`PENDING_SETUP` accounts cannot authenticate with a normal password or
+access protected application APIs; they may use only the future account-
+setup mechanism once its API is specified, and become `ACTIVE` only after
+successful account setup. `DISABLED` accounts cannot authenticate or access
+protected APIs. Persisted User status is authoritative, and JWT possession
+does not override `PENDING_SETUP` or `DISABLED` status.
+
+Only `SYSTEM_ADMIN` may administer account status. A System Administrator
+cannot disable their own account or the last `ACTIVE` System Administrator
+account. Status changes do not themselves grant or revoke society
+membership, ownership, residence/occupancy, committee membership, or
+governance/voting eligibility. Disabling an account does not delete the User
+or its historical/domain relationships. No additional status values are
+permitted.
 
 The target-selection contract for platform-wide access through the
 singular `/society` routes is also unspecified. Do not infer a target from a

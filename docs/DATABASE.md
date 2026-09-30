@@ -1,6 +1,6 @@
 ## Database Specification
 
-**Document:** `DATABASE.md` **Version:** 1.5 **Database:** MongoDB
+**Document:** `DATABASE.md` **Version:** 1.6 **Database:** MongoDB
 **Status:** Active Planning Document --- Revised Governance, Membership & Rule Versioning Schema
 
 ------------------------------------------------------------------------
@@ -177,12 +177,28 @@ all other application roles. The platform-wide `SYSTEM_ADMIN` role does not
 itself establish a society association or membership; populating this field
 does not change the role's platform scope or create society membership.
 
-Newly created accounts enter a pending setup state. The account lifecycle
-may include `PENDING_SETUP` to `ACTIVE`, `PENDING_SETUP` to `DISABLED`, and
-`ACTIVE` to `DISABLED`; this is not a complete status enum or status-
-transition policy. Account setup is separate from ownership, residence/
-occupancy, society membership, committee membership, and governance/voting
-eligibility.
+The only `status` values for User accounts are `PENDING_SETUP`, `ACTIVE`,
+and `DISABLED`. The permitted lifecycle transitions are:
+
+```text
+PENDING_SETUP -> ACTIVE
+PENDING_SETUP -> DISABLED
+ACTIVE -> DISABLED
+DISABLED -> ACTIVE
+```
+
+`PENDING_SETUP` means the newly created account has not completed account/
+password setup. Such an account cannot authenticate with a normal password
+or access protected application APIs; it may use only the future account-
+setup mechanism once that API is specified. It becomes `ACTIVE` only after
+successful account setup. A `DISABLED` account cannot authenticate or
+access protected application APIs, and JWT possession does not override
+persisted status.
+
+Account setup and status are separate from ownership, residence/occupancy,
+society membership, committee membership, and governance/voting eligibility.
+Disabling a User does not delete the User or the historical/domain
+relationships associated with that User.
 
 The backend generates a single-use account-setup credential so the user can
 establish a password. It cannot be reused after successful consumption or
@@ -1767,7 +1783,7 @@ transaction hashes.
 
 # 49. DATABASE STATUS
 
-Version 1.5 --- Active Planning Document. Revised to align with SRS v1.4, Business Rules v1.5, API v1.5 and Architecture v1.4. The schema now explicitly separates ownership, residence and membership, distinguishes platform-wide System Administrator accounts from society-scoped users, documents pending account setup without adding credential fields, specifies unique login email identity, adds versioned society rules, approval evaluations and governance eligibility snapshots, and preserves historical decision context. The database schema must not be changed by an AI coding agent without considering the effects on:
+Version 1.6 --- Active Planning Document. Revised to align with SRS v1.5, Business Rules v1.6, API v1.6 and Architecture v1.5. The schema now explicitly separates ownership, residence and membership, distinguishes platform-wide System Administrator accounts from society-scoped users, documents account setup and the defined User status lifecycle without adding credential fields, specifies unique login email identity, adds versioned society rules, approval evaluations and governance eligibility snapshots, and preserves historical decision context. The database schema must not be changed by an AI coding agent without considering the effects on:
 
 -   SRS
 -   BUSINESS_RULES.md

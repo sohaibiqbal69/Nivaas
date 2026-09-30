@@ -1,6 +1,6 @@
 # Business Rules Specification
 
-**Version:** 1.5 
+**Version:** 1.6 
 **Status:** Active — Planning Baseline
 **Planning Document** --- Revised Governance, Voting & Approval Rules 
 **Project:** Blockchain-Based Apartment Society Governance System
@@ -102,7 +102,7 @@ APIs that explicitly permit the operation:
 - Manage buildings and flats across the platform
 - Manage user accounts across the platform
 - Assign roles
-- Disable accounts
+- Administer user account status under the User Account Status Policy
 - Configure platform-level system settings
 - View system-level audit records
 - Resolve technical/system issues
@@ -142,13 +142,46 @@ the password.
 Credential delivery is implementation-specific; no delivery provider or
 service is mandated by this business rule. Account setup is distinct from
 ownership, residence/occupancy, society membership, committee membership,
-and governance/voting eligibility. The permitted lifecycle paths may include
-`PENDING_SETUP` to `ACTIVE`, `PENDING_SETUP` to `DISABLED`, and `ACTIVE` to
-`DISABLED`; these paths do not define a complete status-transition policy.
+and governance/voting eligibility. Account status values and permitted
+lifecycle transitions are defined in the User Account Status Policy below.
 
-Setup-token expiry, password complexity, forgot-password behavior, exact
-status-transition permissions, and the audit implementation remain
-unspecified.
+Setup-token expiry, password complexity, forgot-password behavior, and the
+audit implementation remain unspecified.
+
+## User Account Status Policy
+
+The only User account status values are:
+
+- `PENDING_SETUP`
+- `ACTIVE`
+- `DISABLED`
+
+The permitted lifecycle transitions are:
+
+```text
+PENDING_SETUP -> ACTIVE
+PENDING_SETUP -> DISABLED
+ACTIVE -> DISABLED
+DISABLED -> ACTIVE
+```
+
+`PENDING_SETUP` identifies a newly created account whose user has not
+completed account/password setup. It cannot authenticate with a normal
+password or access protected application APIs. It may use only the future
+account-setup mechanism once that API is specified, and becomes `ACTIVE`
+only after successful account setup.
+
+`DISABLED` accounts cannot authenticate or access protected application
+APIs. A JWT does not override the persisted account status. Only
+`SYSTEM_ADMIN` may administer account status. A System Administrator
+cannot disable their own account or disable the last `ACTIVE`
+`SYSTEM_ADMIN` account.
+
+A status change does not itself grant or revoke society membership,
+ownership, residence/occupancy, committee membership, or governance/voting
+eligibility. Disabling an account does not delete the User or historical
+or domain relationships associated with that User. No additional account
+status values are permitted.
 
 ## User Profile and Account-Information Updates
 
@@ -1628,7 +1661,7 @@ Quotation Revision?
 
 # 66. BUSINESS RULE STATUS
 
-**Current status:** Planning baseline, revised to v1.5.
+**Current status:** Planning baseline, revised to v1.6.
 
 This version separates membership, ownership, residence and governance
 eligibility; establishes the platform-wide technical scope of
