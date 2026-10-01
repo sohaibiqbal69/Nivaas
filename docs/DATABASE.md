@@ -1,6 +1,6 @@
 ## Database Specification
 
-**Document:** `DATABASE.md` **Version:** 1.9 **Database:** MongoDB
+**Document:** `DATABASE.md` **Version:** 1.10 **Database:** MongoDB
 **Status:** Active Planning Document --- Revised Governance, Membership & Rule Versioning Schema
 
 ------------------------------------------------------------------------
@@ -1501,6 +1501,7 @@ Stores metadata about uploaded photographs/documents.
     newState
     metadata
     ruleVersionId
+    hashVersion
     recordHash
     blockchainTransactionHash
     createdAt
@@ -1520,15 +1521,109 @@ Stores metadata about uploaded photographs/documents.
 | `newState` | Optional BSON object | Optional; omitted when no resulting state applies | Contains only relevant resulting state. |
 | `metadata` | Optional BSON object | Optional; omitted when unused | Limited event context not represented by primary fields. It is not an unrestricted request-body dump; its key vocabulary remains open. |
 | `ruleVersionId` | MongoDB ObjectId reference to `SocietyRuleVersion` | Optional | Present only when the audited action uses a society rule version. Immutable after event creation. |
-| `recordHash` | Required BSON String containing a `0x`-prefixed 32-byte hexadecimal value (bytes32-compatible) | Required for every persisted event | Fixed and immutable when persisted; represents a deterministic commitment to immutable AuditLog event content. It excludes itself and later blockchain transaction/proof association. Exact payload fields, hash algorithm choice, and serialization are deferred to a separate decision. |
+| `hashVersion` | BSON Int32 | Required; value `1` for the initial protocol | Immutable. Identifies the Nivaas AuditLog hashing and serialization protocol, not a society governance-rule version. It participates in the canonical payload. Do not use `ruleVersionId` for this purpose. |
+| `recordHash` | Required BSON String containing a lowercase `0x`-prefixed 32-byte hexadecimal value (bytes32-compatible) | Required for every persisted event | Fixed and immutable when persisted; Ethereum Keccak-256 commitment to the canonical immutable AuditLog event content defined below. It excludes itself and later blockchain transaction/proof association. |
 | `blockchainTransactionHash` | Optional BSON String | Optional; may be omitted | Retained for compatibility. It is not authoritative for asynchronous proof transaction hashes and must not be updated after event creation. Its exact legacy/compatibility semantics and format validation remain unresolved. |
 | `createdAt` | MongoDB Date | Required; generated at creation | Records event creation time and is immutable. No separate `occurredAt` field is defined. |
 
 All event fields are immutable after persistence. `updatedAt` is not part of
-AuditLog. The canonical hash payload field list and serialization are not
-defined here; apart from the explicit exclusions for `recordHash` itself
-and later blockchain transaction/proof association, exact hash participation
-remains for the separate canonical-hash decision.
+AuditLog. The canonical hash protocol is versioned by `hashVersion`; version
+`1` is defined below. This protocol version is independent of a society's
+`SocietyRuleVersion`.
+
+### Canonical AuditLog hash protocol, version 1
+
+The ordered field/value payload consists of the following immutable event
+fields in this exact order:
+
+    hashVersion
+    _id
+    societyId
+    actorId
+    action
+    entityType
+    entityId
+    correctsAuditLogId
+    previousState
+    newState
+    metadata
+    ruleVersionId
+    createdAt
+
+Represent the payload as an ordered JSON array of two-element arrays, each
+containing the field name and its value, for example
+`[["hashVersion", value], ["_id", value], ...]`. The listed sequence is
+authoritative; implementations must not derive top-level ordering from
+JavaScript, MongoDB, or Mongoose object-property order. Optional fields that
+are absent are omitted from the sequence. A field explicitly stored as null
+is included with a null value. Omission, null, empty objects, empty arrays,
+empty strings, false, and zero remain distinct.
+
+Before JSON canonicalization, map BSON values using BSON Canonical Extended
+JSON v2. Then serialize the resulting ordered payload using RFC 8785 JSON
+Canonicalization Scheme (JCS), encode the result as UTF-8, and hash those
+bytes with Ethereum Keccak-256. Store the 32-byte digest as a lowercase,
+`0x`-prefixed hexadecimal string. This is Ethereum Keccak-256, not FIPS
+SHA3-256. No insignificant whitespace is emitted by JCS; JSON escaping and
+object-key ordering follow RFC 8785. Array order is preserved.
+
+Canonical BSON value representations are:
+
+- ObjectIds use Canonical Extended JSON's `$oid` representation with the
+  lowercase 24-character hexadecimal ObjectId string.
+- Dates use Canonical Extended JSON's `$date` representation with the
+  UTC Unix epoch-millisecond value represented as `$numberLong`; local
+  timezone formatting is not used.
+- BSON Int32, Int64, Double, and Decimal128 values use their corresponding
+  Canonical Extended JSON numeric type tags (`$numberInt`, `$numberLong`,
+  `$numberDouble`, and `$numberDecimal`). Their BSON numeric type is
+  preserved; a numeric string remains a string and is not converted. Thus
+  Int32 `1`, Double `1.0`, and Decimal128 `1.00` have distinct typed
+  representations. The original source spelling is not retained by BSON:
+  equivalent values of the same BSON type (for example Double `1.0` and
+  `1e0`) use that type's Canonical Extended JSON representation. Negative
+  zero is preserved in the `$numberDouble` representation as `-0.0`.
+- Strings remain the stored strings, encoded as UTF-8 by the canonical JSON
+  serialization. Do not trim, lowercase, normalize Unicode, or convert
+  business values. Invalid Unicode strings that cannot be represented by
+  RFC 8785 must be rejected rather than silently altered.
+- Booleans and null use JSON `true`, `false`, and `null` respectively.
+- Nested BSON documents map recursively to Canonical Extended JSON and are
+  canonicalized with RFC 8785 key ordering. BSON arrays map recursively and
+  retain their element order.
+- Non-finite numeric values (NaN and positive or negative Infinity) are
+  prohibited in hashable `previousState`, `newState`, and `metadata`.
+  Numeric values are not implicitly converted between BSON numeric types.
+
+The MongoDB ObjectId `_id` is generated before hash calculation and
+persistence so it can participate in the event commitment. The hash input
+includes every immutable event field in the ordered list, including `_id`
+and `correctsAuditLogId` when present. A correction therefore
+commits to the original event's identifier without recursively hashing the
+original event. Absent optional fields are omitted; explicitly stored nulls
+are included. `recordHash`, `blockchainTransactionHash`, blockchain proof
+status, transaction attempts, and all later blockchain association/proof
+information are excluded.
+
+The logical calculation is:
+
+    immutable AuditLog fields
+      → ordered field/value payload
+      → BSON Canonical Extended JSON v2 value mapping
+      → RFC 8785 JCS serialization
+      → UTF-8 bytes
+      → Ethereum Keccak-256
+      → 32-byte digest
+      → lowercase 0x-prefixed hexadecimal `recordHash`
+
+An independent verifier reconstructs the payload from the immutable event,
+uses that event's `hashVersion` protocol, recalculates the digest, and
+compares it with the stored `recordHash`. Where blockchain proof exists,
+the verifier also compares the recalculated/stored commitment with the
+corresponding on-chain commitment. Transaction hashes and proof lifecycle
+state are not hash inputs. Hash versioning preserves the ability to verify
+historical events if a future canonicalization protocol changes; no
+additional hash-version field is defined.
 
 `previousState` and `newState` represent only state relevant to the
 particular audited event, not automatically complete entity snapshots.
@@ -1553,8 +1648,7 @@ remains off-chain; only selected event hashes/references may be anchored.
 The documented `blockchainTransactionHash` field is retained, but it must
 not be treated as the authoritative location for a transaction hash that
 becomes available after the immutable AuditLog event is created. Its exact
-persistence and use semantics remain unresolved. The exact AuditLog fields
-included in its canonical hash also remain unresolved.
+persistence and use semantics remain unresolved.
 
 ## Examples
 
@@ -1841,7 +1935,7 @@ transaction hashes.
 
 # 49. DATABASE STATUS
 
-Version 1.9 --- Active Planning Document. Revised to align with SRS v1.7, Business Rules v1.7, API v1.7 and Architecture v1.8. The schema now explicitly separates ownership, residence and membership, distinguishes platform-wide System Administrator accounts from society-scoped users, documents account setup and the defined User status lifecycle without adding credential fields, specifies unique login email identity, defines the AuditLog field types, optionality, correction reference, immutability, required indexes and target-based society scope, assigns asynchronous AuditLog proof association and transaction lifecycle tracking to the blockchain operation layer, adds versioned society rules, approval evaluations and governance eligibility snapshots, and preserves historical decision context. The database schema must not be changed by an AI coding agent without considering the effects on:
+Version 1.10 --- Active Planning Document. Revised to align with SRS v1.7, Business Rules v1.7, API v1.7 and Architecture v1.9. The schema now explicitly separates ownership, residence and membership, distinguishes platform-wide System Administrator accounts from society-scoped users, documents account setup and the defined User status lifecycle without adding credential fields, specifies unique login email identity, defines the AuditLog field types, optionality, correction reference, immutability, required indexes, target-based society scope and versioned canonical hash protocol, assigns asynchronous AuditLog proof association and transaction lifecycle tracking to the blockchain operation layer, adds versioned society rules, approval evaluations and governance eligibility snapshots, and preserves historical decision context. The database schema must not be changed by an AI coding agent without considering the effects on:
 
 -   SRS
 -   BUSINESS_RULES.md

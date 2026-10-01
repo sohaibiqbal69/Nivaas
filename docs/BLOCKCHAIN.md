@@ -1,6 +1,6 @@
 # BLOCKCHAIN.md
 
-**Version:** 1.3\
+**Version:** 1.4\
 **Status:** Active Planning Document --- Revised Governance & Integrity
 Architecture
 
@@ -466,6 +466,67 @@ SHA-256(file bytes)
 The final implementation must document one consistent convention so
 backend, verification service, and Solidity agree on the resulting
 `bytes32` value.
+
+## 13.1 AuditLog canonical hash protocol
+
+AuditLog `hashVersion` identifies the Nivaas AuditLog hashing and
+serialization protocol, independently of a society's governance
+`ruleVersionId`. Version `1` is required for the initial protocol and is
+itself included in the hash payload. It exists so historical AuditLog
+records can remain verifiable if the protocol changes; no additional hash
+version field is defined.
+
+For version 1, construct an ordered JSON array of `[fieldName, value]`
+pairs using this exact sequence, omitting optional fields only when absent
+and retaining explicit null values:
+
+    hashVersion, _id, societyId, actorId, action, entityType, entityId,
+    correctsAuditLogId, previousState, newState, metadata, ruleVersionId,
+    createdAt
+
+Do not derive this order from JavaScript, MongoDB, or Mongoose property
+order. Map BSON values using BSON Canonical Extended JSON v2, serialize the
+ordered payload using RFC 8785 JSON Canonicalization Scheme (JCS), encode
+the result as UTF-8, and calculate Ethereum Keccak-256. The result is a
+32-byte digest represented as lowercase `0x`-prefixed hexadecimal. This is
+Ethereum Keccak-256, not FIPS SHA3-256. JCS emits no insignificant
+whitespace, applies RFC 8785 JSON escaping and recursively orders object
+keys; array order is preserved.
+
+Canonical BSON mappings use `$oid` with lowercase 24-character hexadecimal
+for ObjectIds; `$date` with the UTC Unix epoch-millisecond value represented
+as `$numberLong` for Dates; and `$numberInt`, `$numberLong`, `$numberDouble`,
+or `$numberDecimal` for BSON Int32, Int64, Double, or Decimal128 values.
+These mappings preserve BSON numeric type. Strings, booleans, and null map
+to their corresponding JSON values. Nested objects are mapped recursively
+and canonicalized by JCS; array elements are mapped recursively in their
+original order. For example, Int32 `1`, Double `1.0`, and Decimal128 `1.00`
+remain distinguishable by their typed representations. Source numeric
+spelling is not retained by BSON, so equivalent values of the same BSON
+type (such as Double `1.0` and `1e0`) use the same Canonical Extended JSON
+representation. Negative zero remains `-0.0` in the `$numberDouble`
+representation. Do not trim, lowercase, normalize Unicode, or convert
+business values. Numeric strings remain strings. Non-finite numbers are
+prohibited in hashable AuditLog state and metadata. Invalid Unicode that
+cannot be represented by RFC 8785 must be rejected rather than altered.
+
+The hash includes every immutable AuditLog event field in the listed
+sequence, including `_id` and `correctsAuditLogId` when present. A correction
+commits to the original event's ID without recursively hashing its contents.
+Absent optional values are omitted; explicitly stored null, empty object,
+empty array, empty string, false, and zero remain distinct. Exclude
+`recordHash`, `blockchainTransactionHash`, proof status, transaction
+attempts, and all later proof/association information. In particular,
+asynchronous transaction hashes and proof status are never hash inputs.
+
+Independent verification reconstructs the ordered payload from the
+immutable off-chain AuditLog event according to its `hashVersion`, computes
+the hash, and compares it with the stored `recordHash`. Where a proof exists,
+the corresponding on-chain commitment is also compared. Transaction
+hashes and lifecycle information are obtained from blockchain
+operation/transaction tracking, not from the AuditLog hash input. A match
+proves integrity/existence of the committed value, not the truth or legal
+validity of the underlying event.
 
 ------------------------------------------------------------------------
 
@@ -1268,7 +1329,7 @@ Tests
 
 # 43. BLOCKCHAIN STATUS
 
-**Version:** 1.3\
+**Version:** 1.4\
 **Status:** Active Planning Document
 
 This version aligns the blockchain layer with the revised membership,
@@ -1276,7 +1337,9 @@ eligibility, rule-version, approval, quotation-versioning,
 governance-resolution, audit, and historical-integrity architecture. It
 clarifies asynchronous AuditLog proof association through the blockchain
 logical-operation/transaction-tracking layer while preserving immutable
-off-chain audit events.
+off-chain audit events, and defines the versioned canonical AuditLog hash
+protocol using BSON Canonical Extended JSON v2, RFC 8785 JCS, and Ethereum
+Keccak-256.
 
 The exact Solidity interface and on-chain payload schema must be frozen
 before smart-contract implementation.

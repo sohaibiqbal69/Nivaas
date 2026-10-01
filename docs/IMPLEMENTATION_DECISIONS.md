@@ -2,7 +2,7 @@
 
 
 
-Version: 1.7
+Version: 1.8
 
 Status: Implementation Baseline
 
@@ -438,9 +438,37 @@ version is used by the action. A correction event references its original
 through the optional self-reference `correctsAuditLogId`.
 
 `recordHash` is required for each persisted event, immutable, and stored as
-a `0x`-prefixed 32-byte hexadecimal string compatible with `bytes32`. It
-excludes itself and later blockchain transaction/proof association. Its
-exact canonical payload fields and serialization remain unresolved.
+a lowercase `0x`-prefixed 32-byte hexadecimal string compatible with
+`bytes32`. The required immutable BSON Int32 `hashVersion` is `1` for the
+initial Nivaas AuditLog hashing/serialization protocol. It participates in
+the record hash and is distinct from society `ruleVersionId`; it preserves
+historical verifiability if the hashing protocol changes.
+
+For hash version 1, the immutable fields are committed in the exact order
+`hashVersion`, `_id`, `societyId`, `actorId`, `action`, `entityType`,
+`entityId`, `correctsAuditLogId`, `previousState`, `newState`, `metadata`,
+`ruleVersionId`, `createdAt`. The payload is an ordered JSON array of
+field/value pairs. Absent optional fields are omitted; explicit null and
+empty object, empty array, empty string, false, and zero remain distinct.
+Values are mapped using BSON Canonical Extended JSON v2, then serialized
+with RFC 8785 JCS, encoded as UTF-8, and hashed with Ethereum Keccak-256
+(not FIPS SHA3-256). The digest is stored as lowercase `0x`-prefixed
+hexadecimal. ObjectIds, dates, BSON numeric types, nested objects, arrays,
+strings, booleans, and null follow the exact canonical mappings and string
+handling constraints in `DATABASE.md` and `BLOCKCHAIN.md`; non-finite
+numbers are prohibited in hashable state/metadata. No implicit trimming,
+case conversion, Unicode normalization, or business-value conversion is
+performed.
+
+The hash includes `_id` and `correctsAuditLogId` when present; correction
+events commit to the original event ID without recursively hashing it.
+`recordHash`, `blockchainTransactionHash`, proof status, transaction
+attempts, and all later proof/association information are excluded. An
+independent verifier reconstructs the payload using the event's
+`hashVersion`, recalculates the hash, and compares it with the stored
+`recordHash` and, when proof exists, the corresponding on-chain commitment.
+The hash establishes integrity/existence of the committed value, not truth
+or legal validity of the event.
 `blockchainTransactionHash` remains an optional compatibility field, is not
 authoritative for asynchronous proof, and must not be modified after event
 creation; its legacy/use semantics remain unresolved. `createdAt` is a
@@ -476,10 +504,11 @@ The existing AuditLog `blockchainTransactionHash` field is retained, but it
 must not be treated as the authoritative location for a hash that becomes
 available after the immutable event is created. Its exact persistence and
 use semantics remain unresolved. No dedicated proof entity is introduced
-by this decision. The exact AuditLog canonical payload fields, blockchain
-tracking persistence schema, which network/contract metadata must be retained
-with an event-level proof association, and API exposure of pending/failed
-proof state remain unresolved.
+by this decision. The AuditLog canonical hash protocol is defined in
+`DATABASE.md` and `BLOCKCHAIN.md`. The blockchain tracking persistence
+schema, which network/contract metadata must be retained with an event-level
+proof association, and API exposure of pending/failed proof state remain
+unresolved.
 
 Audit visibility retains the existing high-level role matrix. Actual access
 is server-authorized and subject to authentication, role authorization,
@@ -491,8 +520,6 @@ The following AuditLog questions remain unresolved:
 - Whether a single atomic action affecting multiple societies produces
   multiple audit events or another representation
 - How security-event logging for failed/denied attempts is handled
-- The exact AuditLog canonical payload fields, hash algorithm choice, and
-  serialization for `recordHash`
 - The exact action-code and entity-type vocabularies
 - The exact permitted key vocabulary for `metadata`
 - Detailed semantics for system-generated AuditLog events

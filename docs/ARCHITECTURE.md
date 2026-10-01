@@ -1,7 +1,7 @@
 ## System Architecture Specification
 
 **Document:** `ARCHITECTURE.md`
-**Version:** 1.7
+**Version:** 1.9
 **Status:** Active Planning Document — Revised Governance, Rule Engine & Blockchain Architecture
 
 ---
@@ -916,12 +916,15 @@ that becomes available after the event was persisted; its exact persistence
 and use semantics remain unresolved. Do not create a dedicated proof entity
 or blockchain-lifecycle AuditLog events unless a later specification
 decision requires them. AuditLog uses a MongoDB ObjectId `_id`, a required
-creation timestamp, and a required immutable `recordHash` stored as a
-`0x`-prefixed 32-byte hexadecimal string compatible with `bytes32`; it has
-no `updatedAt`. A correction uses the optional self-reference
-`correctsAuditLogId`. The `entityId` is optional when there is no single
-affected entity. The exact AuditLog canonical payload fields remain
-unresolved.
+creation timestamp, a required immutable `hashVersion` (initial value `1`),
+and a required immutable `recordHash` stored as a lowercase `0x`-prefixed
+32-byte hexadecimal string compatible with `bytes32`; it has no `updatedAt`.
+`hashVersion` identifies the Nivaas AuditLog hashing/serialization protocol,
+not a society governance-rule version. A correction uses the optional
+self-reference `correctsAuditLogId`. The `entityId` is optional when there
+is no single affected entity. The exact version-1 field order, BSON
+Canonical Extended JSON v2 mapping, RFC 8785 serialization, and Ethereum
+Keccak-256 calculation are specified in `DATABASE.md` and `BLOCKCHAIN.md`.
 
 ---
 
@@ -1211,5 +1214,5 @@ AI coding tools must:
 
 # 43. ARCHITECTURE STATUS
 
-Version 1.8 — Active Planning Document. Revised to align with SRS v1.7, Business Rules v1.7, API v1.7 and Database v1.9, explicitly introducing the modular-monolith domain structure, membership/eligibility layer, versioned rule configuration, Approval Engine, Governance Resolution architecture, blockchain transaction boundaries, separate platform/society authorization scopes, user-established initial credentials, persisted account-status authentication checks, the typed immutable AuditLog model and correction reference, and asynchronous proof association through blockchain transaction tracking.
+Version 1.9 — Active Planning Document. Revised to align with SRS v1.7, Business Rules v1.7, API v1.7 and Database v1.10, explicitly introducing the modular-monolith domain structure, membership/eligibility layer, versioned rule configuration, Approval Engine, Governance Resolution architecture, blockchain transaction boundaries, separate platform/society authorization scopes, user-established initial credentials, persisted account-status authentication checks, the typed immutable AuditLog model and correction reference, asynchronous proof association through blockchain transaction tracking, and versioned canonical AuditLog hashing.
 Any major architectural change must update this document and the affected technical specifications.
