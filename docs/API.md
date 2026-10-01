@@ -1,6 +1,6 @@
 ## REST API Specification
 
-**Document:** `API.md` **Version:** 1.7 **Base URL:** `/api` **Status:**
+**Document:** `API.md` **Version:** 1.8 **Base URL:** `/api` **Status:**
 Active Planning Document — Revised Membership, Rule Configuration,
 Approval & Governance APIs
 
@@ -170,19 +170,61 @@ Return the currently authenticated user.
 
 ## GET `/users`
 
-System Admin only. This is a platform-scoped administrative endpoint and may
-return users across societies according to permitted filters. The endpoint's
+`SYSTEM_ADMIN` only. This is the generic platform-wide user administration
+and listing endpoint. No society-scoped role may use this endpoint. Its
 explicit platform scope does not establish platform scope for other routes.
+User-related information needed by society-scoped users must be exposed
+through purpose-specific endpoints or permitted resource APIs; the generic
+user-list endpoint does not provide that access.
+
+Each returned user uses the safe user representation defined below. The
+endpoint does not return raw Mongoose User documents.
 
 ------------------------------------------------------------------------
 
 ## GET `/users/:id`
 
-Returns a user profile according to permission.
+Returns the requested user's account/profile representation subject to
+these permissions:
 
-Any cross-society access must be explicitly permitted for this endpoint.
-Other access remains subject to the target user's society scope and the
-applicable self/profile permissions.
+- `SYSTEM_ADMIN` may retrieve a user across the platform.
+- `SOCIETY_MANAGER` may retrieve permitted user profiles belonging to the
+  manager's society.
+- `COMMITTEE_MEMBER` may retrieve permitted user profiles belonging to the
+  committee member's society.
+- `OWNER_MEMBER` may retrieve only their own profile through this endpoint.
+- `RESIDENT` may retrieve only their own profile through this endpoint.
+
+Society-scoped roles may not retrieve a user from another society. The
+authenticated user's identity and society scope come from the verified
+token and persisted user record; request-supplied identity or society values
+do not establish access. Application roles do not imply ownership,
+residence, membership, committee membership, or governance/voting
+eligibility.
+
+The response uses the safe user representation below and is not a raw
+Mongoose User document.
+
+### Safe user representation
+
+The user representation returned by the user list and profile APIs is
+limited to these User fields:
+
+- `_id`
+- `societyId`
+- `name`
+- `email`
+- `phone`
+- `role`
+- `walletAddress`
+- `status`
+- `createdAt`
+- `updatedAt`
+
+`societyId` may be null for a platform-wide `SYSTEM_ADMIN` account. Access
+to society-scoped user profiles remains subject to the authorization above.
+Responses must never expose `passwordHash`, passwords, account-setup
+credentials/tokens, JWTs, secrets, or internal authentication material.
 
 ------------------------------------------------------------------------
 
@@ -1549,6 +1591,13 @@ This matrix is a baseline. Specific endpoint authorization must still be
 checked against entity state, membership, resolution eligibility, conflict
 of interest and the applicable society rule configuration.
 
+For the Users row, endpoint-specific rules take precedence. In particular,
+`GET /users` is `SYSTEM_ADMIN` only; the Manager `Limited` and Committee
+`View` labels do not grant access to that generic list endpoint.
+`GET /users/:id` follows the explicit per-role profile permissions defined in
+Section 6. The matrix does not define additional user-management endpoints
+or permissions.
+
 In this matrix, the Admin column denotes `SYSTEM_ADMIN`'s platform-level
 technical scope. In the Society row, Full refers to platform-level access
 only on explicitly permitted society-administration endpoints; it does not
@@ -1726,13 +1775,14 @@ Whenever an API changes, the AI developer must update:
 
 # 39. API STATUS
 
-Version 1.7 — Active Planning Document.
+Version 1.8 — Active Planning Document.
 
-Revised to align with SRS v1.6, Business Rules v1.7, Architecture v1.6 and
-Database v1.7. The API now explicitly supports the membership/eligibility
+Revised to align with SRS v1.8, Business Rules v1.8, Architecture v1.10 and
+Database v1.11. The API now explicitly supports the membership/eligibility
 layer, versioned governance configuration, approval re-evaluation,
 meeting/quorum workflows, governance-result finalization and retry-safe
-critical operations.
+critical operations, and the user-list, user-profile access, and safe user
+response rules.
 
 The API is the contract between the frontend and backend. No AI coding
 agent should invent or silently change API behavior.

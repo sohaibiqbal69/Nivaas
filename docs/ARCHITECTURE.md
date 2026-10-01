@@ -1,7 +1,7 @@
 ## System Architecture Specification
 
 **Document:** `ARCHITECTURE.md`
-**Version:** 1.9
+**Version:** 1.10
 **Status:** Active Planning Document — Revised Governance, Rule Engine & Blockchain Architecture
 
 ---
@@ -456,6 +456,12 @@ the society association loaded from the authenticated user's persisted
 record. A request-supplied `societyId` or `userId` is not proof of identity
 or access.
 
+`User.societyId` may be null for `SYSTEM_ADMIN` and must be non-null for
+every society-scoped role. The current-user authorization context must
+preserve a null society ID for a platform administrator. Current-user
+loading and authentication/user response serialization must preserve that
+null without dereferencing it or manufacturing a society association.
+
 Cross-society access for `SYSTEM_ADMIN` is an explicit platform-admin
 capability that must be granted by the relevant API authorization. It must
 not be implemented as an implicit exception inside generic same-society
@@ -468,6 +474,13 @@ Society-scoped endpoint access is evaluated against the society associated
 with the server-loaded resource. The exact target-selection contract for a
 platform administrator using the singular current-society API routes remains
 unspecified in `API.md`.
+
+The generic `GET /users` endpoint is explicitly platform-wide and
+`SYSTEM_ADMIN` only. `GET /users/:id` applies the role and society access
+rules in `API.md`. Platform-administrator authorization remains an explicit
+capability separate from normal same-society checks; a null society context
+must not be treated as matching any society resource. User API responses use
+the safe field representation defined in `API.md`.
 
 Example:
 
@@ -1214,5 +1227,5 @@ AI coding tools must:
 
 # 43. ARCHITECTURE STATUS
 
-Version 1.9 — Active Planning Document. Revised to align with SRS v1.7, Business Rules v1.7, API v1.7 and Database v1.10, explicitly introducing the modular-monolith domain structure, membership/eligibility layer, versioned rule configuration, Approval Engine, Governance Resolution architecture, blockchain transaction boundaries, separate platform/society authorization scopes, user-established initial credentials, persisted account-status authentication checks, the typed immutable AuditLog model and correction reference, asynchronous proof association through blockchain transaction tracking, and versioned canonical AuditLog hashing.
+Version 1.10 — Active Planning Document. Revised to align with SRS v1.8, Business Rules v1.8, API v1.8 and Database v1.11, explicitly introducing the modular-monolith domain structure, membership/eligibility layer, versioned rule configuration, Approval Engine, Governance Resolution architecture, blockchain transaction boundaries, separate platform/society authorization scopes, nullable platform-administrator society context, user-list/profile access and safe-response boundaries, user-established initial credentials, persisted account-status authentication checks, the typed immutable AuditLog model and correction reference, asynchronous proof association through blockchain transaction tracking, and versioned canonical AuditLog hashing.
 Any major architectural change must update this document and the affected technical specifications.

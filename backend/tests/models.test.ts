@@ -35,6 +35,35 @@ describe('Nivaas society data models', () => {
     expect(MEMBERSHIP_TYPES).toEqual(['PRIMARY', 'JOINT', 'ASSOCIATE', 'PROVISIONAL']);
   });
 
+  it('allows a nullable society only for SYSTEM_ADMIN and validates the role/society invariant', async () => {
+    const societyId = new Types.ObjectId();
+    const createUser = (role: string, assignedSocietyId: Types.ObjectId | null) => new User({
+      societyId: assignedSocietyId,
+      name: 'Account',
+      email: `${role.toLowerCase()}@example.test`,
+      passwordHash: 'hash',
+      role,
+      status: 'ACTIVE',
+    });
+
+    await expect(createUser('SYSTEM_ADMIN', null).validate()).resolves.toBeUndefined();
+    await expect(createUser('SYSTEM_ADMIN', societyId).validate()).resolves.toBeUndefined();
+
+    for (const role of ['SOCIETY_MANAGER', 'COMMITTEE_MEMBER', 'OWNER_MEMBER', 'RESIDENT']) {
+      await expect(createUser(role, societyId).validate()).resolves.toBeUndefined();
+      await expect(createUser(role, null).validate()).rejects.toMatchObject({
+        errors: { societyId: expect.anything() },
+      });
+    }
+
+    const admin = createUser('SYSTEM_ADMIN', null);
+    await admin.validate();
+    admin.role = 'RESIDENT';
+    await expect(admin.validate()).rejects.toMatchObject({
+      errors: { societyId: expect.anything() },
+    });
+  });
+
   it('declares ObjectId references for the documented entity relationships', () => {
     expect(societySchema.path('activeRuleVersionId').options.ref).toBe('SocietyRuleVersion');
     expect(societyRuleVersionSchema.path('societyId').options.ref).toBe('Society');

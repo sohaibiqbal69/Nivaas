@@ -6,13 +6,13 @@ export type ApplicationRole = typeof USER_ROLES[number];
 
 export type CurrentUserContext = {
   userId: string;
-  societyId: string;
+  societyId: string | null;
   role: ApplicationRole;
 };
 
 export type CurrentUserRecord = {
   _id: { toString(): string };
-  societyId: { toString(): string };
+  societyId: { toString(): string } | null;
   role: string;
 };
 
@@ -46,10 +46,17 @@ export function createLoadCurrentUser(repository: CurrentUserRepository = userRe
         return;
       }
 
+      const role = user.role as ApplicationRole;
+      const societyId = user.societyId?.toString() ?? null;
+      if (role !== 'SYSTEM_ADMIN' && societyId === null) {
+        next(new ApiError(403, 'FORBIDDEN', 'The authenticated account has no valid society association.'));
+        return;
+      }
+
       request.currentUser = {
         userId: user._id.toString(),
-        societyId: user.societyId.toString(),
-        role: user.role as ApplicationRole,
+        societyId,
+        role,
       };
       next();
     } catch (error) {

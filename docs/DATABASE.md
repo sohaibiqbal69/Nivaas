@@ -1,6 +1,6 @@
 ## Database Specification
 
-**Document:** `DATABASE.md` **Version:** 1.10 **Database:** MongoDB
+**Document:** `DATABASE.md` **Version:** 1.11 **Database:** MongoDB
 **Status:** Active Planning Document --- Revised Governance, Membership & Rule Versioning Schema
 
 ------------------------------------------------------------------------
@@ -172,10 +172,13 @@ Represents a person using the system.
     createdAt
     updatedAt
 
-`societyId` is nullable only for `SYSTEM_ADMIN` accounts. It is required for
-all other application roles. The platform-wide `SYSTEM_ADMIN` role does not
-itself establish a society association or membership; populating this field
-does not change the role's platform scope or create society membership.
+`societyId` may be null for a platform-wide `SYSTEM_ADMIN` account and is
+required and non-null for every society-scoped role. The platform-wide
+`SYSTEM_ADMIN` role does not itself establish a society association or
+membership; a fake or synthetic society must not be assigned merely to
+satisfy an account schema. Any society association recorded for a user does
+not change the `SYSTEM_ADMIN` role's platform scope or create society
+membership.
 
 The only `status` values for User accounts are `PENDING_SETUP`, `ACTIVE`,
 and `DISABLED`. The permitted lifecycle transitions are:
@@ -1935,7 +1938,7 @@ transaction hashes.
 
 # 49. DATABASE STATUS
 
-Version 1.10 --- Active Planning Document. Revised to align with SRS v1.7, Business Rules v1.7, API v1.7 and Architecture v1.9. The schema now explicitly separates ownership, residence and membership, distinguishes platform-wide System Administrator accounts from society-scoped users, documents account setup and the defined User status lifecycle without adding credential fields, specifies unique login email identity, defines the AuditLog field types, optionality, correction reference, immutability, required indexes, target-based society scope and versioned canonical hash protocol, assigns asynchronous AuditLog proof association and transaction lifecycle tracking to the blockchain operation layer, adds versioned society rules, approval evaluations and governance eligibility snapshots, and preserves historical decision context. The database schema must not be changed by an AI coding agent without considering the effects on:
+Version 1.11 --- Active Planning Document. Revised to align with SRS v1.8, Business Rules v1.8, API v1.8 and Architecture v1.10. The schema now explicitly separates ownership, residence and membership, distinguishes platform-wide System Administrator accounts from society-scoped users, documents nullable `societyId` for `SYSTEM_ADMIN` and non-null society association for society-scoped roles, documents account setup and the defined User status lifecycle without adding credential fields, specifies unique login email identity, defines the AuditLog field types, optionality, correction reference, immutability, required indexes, target-based society scope and versioned canonical hash protocol, assigns asynchronous AuditLog proof association and transaction lifecycle tracking to the blockchain operation layer, adds versioned society rules, approval evaluations and governance eligibility snapshots, and preserves historical decision context. The database schema must not be changed by an AI coding agent without considering the effects on:
 
 -   SRS
 -   BUSINESS_RULES.md

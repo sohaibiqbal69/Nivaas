@@ -10,7 +10,13 @@ export const USER_ROLES = [
 
 export const userSchema = new Schema(
   {
-    societyId: { type: Schema.Types.ObjectId, ref: 'Society', required: true },
+    societyId: {
+      type: Schema.Types.ObjectId,
+      ref: 'Society',
+      required: function (this: { role?: string }) {
+        return this.role !== 'SYSTEM_ADMIN';
+      },
+    },
     name: { type: String, required: true },
     email: { type: String, required: true },
     phone: { type: String },

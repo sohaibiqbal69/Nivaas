@@ -11,7 +11,12 @@ export function assertSameSociety(currentUser: CurrentUserContext | undefined, r
     throw new ApiError(401, 'UNAUTHORIZED', 'Authentication is required.');
   }
 
-  if (!resourceSocietyId || currentUser.societyId !== resourceSocietyId.toString()) {
+  if (
+    currentUser.role === 'SYSTEM_ADMIN'
+    || currentUser.societyId === null
+    || !resourceSocietyId
+    || currentUser.societyId !== resourceSocietyId.toString()
+  ) {
     throw new ApiError(403, 'FORBIDDEN', 'You do not have permission to access this resource.');
   }
 }

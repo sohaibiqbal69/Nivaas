@@ -1,7 +1,7 @@
 # Software Requirements Specification
 
 **Document:** `SRS.md`\
-**Version:** 1.7\
+**Version:** 1.8\
 **Status:** Active Planning Specification\
 **Project:** Nivaas --- Blockchain-Based Apartment Society
 Governance System
@@ -85,7 +85,8 @@ account. It may act across societies only through administrative APIs that
 explicitly permit the operation. It does not make its holder a society
 member or confer ownership, residence, committee membership, governance
 eligibility, or governance authority. Society-scoped roles use their
-persisted society association for resource isolation.
+persisted society association for resource isolation. `societyId` may be
+null for `SYSTEM_ADMIN` and is required for every society-scoped role.
 
 ## FR-ROLE-002
 
@@ -408,6 +409,31 @@ society membership, ownership, residence/occupancy, committee membership,
 or governance/voting eligibility. Disabling an account shall not delete the
 User or associated historical/domain relationships. No account status
 values beyond those defined in FR-USER-005 are permitted.
+
+## FR-USER-013
+
+The generic `GET /users` endpoint shall be available only to `SYSTEM_ADMIN`
+for platform-wide user administration/listing. Society-scoped roles shall
+not use this generic endpoint. User-related information needed by those
+roles shall be provided through purpose-specific endpoints or permitted
+resource APIs.
+
+## FR-USER-014
+
+For `GET /users/:id`, `SYSTEM_ADMIN` may retrieve a user across the
+platform. `SOCIETY_MANAGER` and `COMMITTEE_MEMBER` may retrieve permitted
+user profiles belonging to their society. `OWNER_MEMBER` and `RESIDENT`
+may retrieve only their own profile through this endpoint. Society-scoped
+roles shall not retrieve profiles from another society. Application role
+shall not be treated as ownership, residence, society membership,
+committee membership, or governance/voting eligibility.
+
+## FR-USER-015
+
+User list/profile API responses shall use the safe User representation
+defined in `API.md` and shall not expose password hashes, passwords,
+account-setup credentials/tokens, JWTs, secrets, internal authentication
+material, or raw database documents.
 
 ------------------------------------------------------------------------
 
@@ -2397,12 +2423,13 @@ Blockchain Verification
 
 # 57. SRS STATUS
 
-**Version:** 1.7\
+**Version:** 1.8\
 **Status:** Active Planning Specification
 
 This version incorporates the current approved business-rule decisions,
-governance research used during planning, and the clarified AuditLog data
-model and asynchronous blockchain-proof association.
+governance research used during planning, the clarified AuditLog data model
+and asynchronous blockchain-proof association, and the user-list/profile
+access and safe-response requirements.
 
 The SRS must be updated whenever an approved business-rule change
 affects software behavior.

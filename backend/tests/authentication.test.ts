@@ -30,10 +30,10 @@ afterEach(async () => {
   })));
 });
 
-async function makeUserRecord(): Promise<LoginUserRecord> {
+async function makeUserRecord(userSocietyId: string | null = societyId): Promise<LoginUserRecord> {
   return {
     _id: { toString: () => userId },
-    societyId: { toString: () => societyId },
+    societyId: userSocietyId === null ? null : { toString: () => userSocietyId },
     name: 'Test User',
     email: 'person@example.com',
     role: 'OWNER_MEMBER',
@@ -86,6 +86,23 @@ describe('authentication service and login endpoint', () => {
     const verified = await jwtVerify(payload.data.token, new TextEncoder().encode(jwtSecret));
     expect(verified.payload.sub).toBe(userId);
     expect(Object.keys(verified.payload).sort()).toEqual(['exp', 'iat', 'sub']);
+  });
+
+  it('authenticates a platform administrator with null societyId without fabricating a society', async () => {
+    const user = await makeUserRecord(null);
+    user.role = 'SYSTEM_ADMIN';
+    const service = new AuthenticationService(
+      { findByEmail: async (email) => email === user.email ? user : null },
+      () => jwtConfiguration,
+    );
+
+    const result = await service.login(user.email, password);
+
+    expect(result.user.societyId).toBeNull();
+    expect(result.user).not.toHaveProperty('passwordHash');
+    expect(result.user).not.toHaveProperty('token');
+    const verified = await jwtVerify(result.token, new TextEncoder().encode(jwtSecret));
+    expect(verified.payload.sub).toBe(userId);
   });
 
   it('returns the same generic authentication failure for a wrong password and an unknown email', async () => {

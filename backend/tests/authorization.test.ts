@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { errorHandler } from '../src/middleware/error-handler.js';
 import { createLoadCurrentUser, type CurrentUserRecord } from '../src/middleware/load-current-user.js';
 import { requireRoles } from '../src/middleware/require-roles.js';
-import { requireSameSociety } from '../src/middleware/society-isolation.js';
+import { assertSameSociety, requireSameSociety } from '../src/middleware/society-isolation.js';
 import { createAuthenticationMiddleware } from '../src/modules/auth/authentication-middleware.js';
 import { issueAccessToken } from '../src/modules/auth/jwt.js';
 
@@ -31,10 +31,10 @@ afterEach(async () => {
   })));
 });
 
-function record(userId: string, societyId: string, role = 'OWNER_MEMBER'): CurrentUserRecord {
+function record(userId: string, societyId: string | null, role = 'OWNER_MEMBER'): CurrentUserRecord {
   return {
     _id: { toString: () => userId },
-    societyId: { toString: () => societyId },
+    societyId: societyId === null ? null : { toString: () => societyId },
     role,
   };
 }
@@ -65,6 +65,13 @@ function createProtectedApp(records: Map<string, CurrentUserRecord>, lookup = vi
 
   addResourceRoute('/same-society', societyAId);
   addResourceRoute('/other-society', societyBId);
+  app.get(
+    '/platform-context', authenticate, loadCurrentUser, requireRoles('SYSTEM_ADMIN'),
+    (request, response) => response.json({
+      success: true,
+      data: { userId: request.currentUser?.userId, societyId: request.currentUser?.societyId },
+    }),
+  );
   app.get('/missing-context', requireRoles('OWNER_MEMBER'), (_request, response) => response.sendStatus(200));
   app.get('/loader-without-context', loadCurrentUser, (_request, response) => response.sendStatus(200));
   app.use(errorHandler);
@@ -146,5 +153,48 @@ describe('authorization foundation', () => {
 
     expect(sameSocietyResponse.status).toBe(200);
     expect(otherSocietyResponse.status).toBe(403);
+  });
+
+  it('loads a platform administrator with null society context without fabricating a society', async () => {
+    const lookup = vi.fn(async (userId: string) => userId === userAId
+      ? record(userAId, null, 'SYSTEM_ADMIN')
+      : null);
+    const { app } = createProtectedApp(new Map(), lookup);
+    const token = await issueAccessToken(userAId, jwtConfiguration);
+    const response = await fetch(`${await startServer(app)}/platform-context`, {
+      headers: bearer(token),
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      success: true,
+      data: { userId: userAId, societyId: null },
+    });
+    expect(lookup).toHaveBeenCalledExactlyOnceWith(userAId);
+  });
+
+  it('rejects a society-scoped account whose persisted society context is null', async () => {
+    const { app } = createProtectedApp(new Map([[userAId, record(userAId, null, 'OWNER_MEMBER')]]));
+    const token = await issueAccessToken(userAId, jwtConfiguration);
+    const response = await fetch(`${await startServer(app)}/same-society`, {
+      method: 'POST', headers: bearer(token),
+    });
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toMatchObject({
+      success: false,
+      error: { code: 'FORBIDDEN' },
+    });
+  });
+
+  it('does not let SYSTEM_ADMIN bypass an explicit same-society check', () => {
+    expect(() => assertSameSociety({ userId: userAId, societyId: null, role: 'SYSTEM_ADMIN' }, societyAId))
+      .toThrow(/permission/);
+    expect(() => assertSameSociety({ userId: userAId, societyId: societyAId, role: 'SYSTEM_ADMIN' }, societyAId))
+      .toThrow(/permission/);
+    expect(() => assertSameSociety({ userId: userAId, societyId: societyAId, role: 'OWNER_MEMBER' }, societyAId))
+      .not.toThrow();
+    expect(() => assertSameSociety({ userId: userAId, societyId: societyAId, role: 'OWNER_MEMBER' }, societyBId))
+      .toThrow(/permission/);
   });
 });

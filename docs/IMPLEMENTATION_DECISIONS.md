@@ -2,7 +2,7 @@
 
 
 
-Version: 1.8
+Version: 1.9
 
 Status: Implementation Baseline
 
@@ -528,4 +528,44 @@ The following AuditLog questions remain unresolved:
 - Which network/contract metadata must be retained with an event-level
   proof association
 - The exact API exposure of pending/failed proof state
+
+## 11. User Read APIs and Platform-Administrator Society Context
+
+`GET /users` is a generic platform-wide user administration/listing endpoint
+available only to `SYSTEM_ADMIN`. No society-scoped role may use it. The
+older/general Users authorization-matrix labels do not grant society-scoped
+access to this endpoint. User information needed by society-scoped users
+belongs in purpose-specific endpoints or permitted resource APIs.
+
+For `GET /users/:id`, `SYSTEM_ADMIN` may retrieve users across the platform.
+`SOCIETY_MANAGER` and `COMMITTEE_MEMBER` may retrieve permitted profiles
+belonging to their own society. `OWNER_MEMBER` and `RESIDENT` may retrieve
+only their own profile through this endpoint. Society-scoped roles may not
+retrieve another society's user. The endpoint returns only the safe user
+fields specified in `API.md`; it never returns raw User documents or
+authentication secrets. Application role remains separate from ownership,
+residence, membership, committee membership, and governance/voting
+eligibility.
+
+The database invariant is `societyId` nullable for `SYSTEM_ADMIN` and
+required/non-null for all society-scoped roles. The current authentication
+and authorization implementation must be updated before the User read APIs
+are implemented:
+
+- `User.societyId` must support null for `SYSTEM_ADMIN` while remaining
+  required for society-scoped roles.
+- `CurrentUserContext.societyId` must support null.
+- `load-current-user` must preserve null for `SYSTEM_ADMIN` rather than
+  dereferencing it or manufacturing a society association.
+- Authentication/user response serialization that includes `societyId` must
+  preserve null for `SYSTEM_ADMIN` rather than dereferencing it or
+  manufacturing a society association.
+- Generic same-society isolation must not treat a null society as matching
+  any resource; platform-administrator access must remain an explicit
+  authorization capability.
+
+This implementation requirement does not make `SYSTEM_ADMIN` a society
+member or grant ownership, residence, membership, committee membership,
+governance eligibility, or voting rights. It does not create a synthetic
+society or society membership for a platform administrator.
 

@@ -8,7 +8,7 @@ const DUMMY_PASSWORD_HASH = `scrypt$32768$8$1$${'00'.repeat(16)}$${'00'.repeat(6
 
 export type LoginUserRecord = {
   _id: { toString(): string };
-  societyId: { toString(): string };
+  societyId: { toString(): string } | null;
   name: string;
   email: string;
   role: string;
@@ -17,7 +17,7 @@ export type LoginUserRecord = {
 
 export type AuthenticatedUser = {
   _id: string;
-  societyId: string;
+  societyId: string | null;
   name: string;
   email: string;
   role: string;
@@ -57,7 +57,7 @@ export class AuthenticationService {
     return {
       user: {
         _id: user._id.toString(),
-        societyId: user.societyId.toString(),
+        societyId: user.societyId?.toString() ?? null,
         name: user.name,
         email: user.email,
         role: user.role,

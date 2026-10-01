@@ -1,6 +1,6 @@
 # Business Rules Specification
 
-**Version:** 1.7 
+**Version:** 1.8 
 **Status:** Active — Planning Baseline
 **Planning Document** --- Revised Governance, Voting & Approval Rules 
 **Project:** Blockchain-Based Apartment Society Governance System
@@ -112,6 +112,11 @@ persisted society association for access isolation. Their application role
 does not replace ownership, residence, membership, committee membership,
 or governance-eligibility records.
 
+`SYSTEM_ADMIN` is platform-wide and may have a null `societyId`. Every
+society-scoped role requires a non-null society association. A platform
+administrator is not made a society member or given governance rights by
+the platform role or by user administration.
+
 The `SYSTEM_ADMIN` role alone does not grant society membership, ownership,
 residence, committee membership, governance eligibility, or authority to
 change a society's governance-rule version. Authority to change
@@ -198,6 +203,27 @@ membership, ownership, residence/occupancy, committee membership, or
 governance eligibility. Editing a wallet address does not grant governance
 or voting rights. Email verification, reauthentication, password reset, and
 notification behavior are not defined by this rule.
+
+## User Account Read Access
+
+The generic `GET /users` endpoint is a platform-wide administrative listing
+available only to `SYSTEM_ADMIN`. Society-scoped roles do not use this
+generic endpoint. User-related information needed in a society workflow is
+provided through purpose-specific endpoints or permitted resource APIs.
+
+For `GET /users/:id`, `SYSTEM_ADMIN` may retrieve a user across the
+platform. `SOCIETY_MANAGER` and `COMMITTEE_MEMBER` may retrieve permitted
+user profiles belonging to their society. `OWNER_MEMBER` and `RESIDENT` may
+retrieve only their own profile through this endpoint. Society-scoped roles
+cannot retrieve profiles belonging to another society. These account/profile
+permissions do not establish ownership, residence, membership, committee
+membership, or governance/voting eligibility.
+
+User list/profile API representations are limited to the User fields
+specified as safe in `API.md`. Password hashes, passwords, setup
+credentials/tokens, JWTs, secrets, and internal authentication material
+must not be returned. User API responses must not expose raw database
+documents.
 
 ---
 
@@ -1699,13 +1725,13 @@ Quotation Revision?
 
 # 66. BUSINESS RULE STATUS
 
-**Current status:** Planning baseline, revised to v1.7.
+**Current status:** Planning baseline, revised to v1.8.
 
 This version separates membership, ownership, residence and governance
 eligibility; establishes the platform-wide technical scope of
-`SYSTEM_ADMIN`, specifies initial account setup credentials, permitted
-user profile/account-information updates, and the AuditLog foundation; makes
-approval and meeting rules configurable/versioned;
+`SYSTEM_ADMIN`, specifies initial account setup credentials, permitted user
+profile/account-information updates and read access, and the AuditLog
+foundation; makes approval and meeting rules configurable/versioned;
 defines a concrete prototype governance baseline where the reviewed rules
 support it; and preserves historical decision integrity.
 
