@@ -866,11 +866,12 @@ request/runtime information. They are not authoritative business history
 and do not replace AuditLog.
 
 AuditLog events are append-only and immutable. An incorrect event is
-corrected through a new event that identifies/references the original and
-explains the correction; the original is preserved. Audit payloads contain
-only relevant changed state, not complete entity snapshots by default, and
-exclude passwords, password hashes, setup credentials/tokens, JWTs, secrets,
-complete personal profiles, and unnecessary sensitive personal information.
+corrected through a new event whose `correctsAuditLogId` references the
+original event and explains the correction; the original is preserved.
+Audit payloads contain only relevant changed state, not complete entity
+snapshots by default, and exclude passwords, password hashes, setup
+credentials/tokens, JWTs, secrets, complete personal profiles, and
+unnecessary sensitive personal information.
 
 The `societyId` on an audit event follows the target resource/action. A
 society-scoped action identifies its society; a genuinely platform-wide
@@ -914,7 +915,12 @@ field remains, but is not the authoritative location for a transaction hash
 that becomes available after the event was persisted; its exact persistence
 and use semantics remain unresolved. Do not create a dedicated proof entity
 or blockchain-lifecycle AuditLog events unless a later specification
-decision requires them. The exact AuditLog canonical payload fields remain
+decision requires them. AuditLog uses a MongoDB ObjectId `_id`, a required
+creation timestamp, and a required immutable `recordHash` stored as a
+`0x`-prefixed 32-byte hexadecimal string compatible with `bytes32`; it has
+no `updatedAt`. A correction uses the optional self-reference
+`correctsAuditLogId`. The `entityId` is optional when there is no single
+affected entity. The exact AuditLog canonical payload fields remain
 unresolved.
 
 ---
@@ -1205,5 +1211,5 @@ AI coding tools must:
 
 # 43. ARCHITECTURE STATUS
 
-Version 1.7 — Active Planning Document. Revised to align with SRS v1.6, Business Rules v1.7, API v1.7 and Database v1.8, explicitly introducing the modular-monolith domain structure, membership/eligibility layer, versioned rule configuration, Approval Engine, Governance Resolution architecture, blockchain transaction boundaries, separate platform/society authorization scopes, user-established initial credentials, persisted account-status authentication checks, immutable AuditLog architecture, and asynchronous proof association through blockchain transaction tracking.
+Version 1.8 — Active Planning Document. Revised to align with SRS v1.7, Business Rules v1.7, API v1.7 and Database v1.9, explicitly introducing the modular-monolith domain structure, membership/eligibility layer, versioned rule configuration, Approval Engine, Governance Resolution architecture, blockchain transaction boundaries, separate platform/society authorization scopes, user-established initial credentials, persisted account-status authentication checks, the typed immutable AuditLog model and correction reference, and asynchronous proof association through blockchain transaction tracking.
 Any major architectural change must update this document and the affected technical specifications.

@@ -1,7 +1,7 @@
 # Software Requirements Specification
 
 **Document:** `SRS.md`\
-**Version:** 1.6\
+**Version:** 1.7\
 **Status:** Active Planning Specification\
 **Project:** Nivaas --- Blockchain-Based Apartment Society
 Governance System
@@ -1473,11 +1473,16 @@ The system shall maintain an audit trail of important system actions.
 
 ## FR-AUDIT-002
 
-Audit entries shall identify the user responsible for an action.
+Audit entries shall identify the responsible User when a human user is
+responsible. `actorId` may be omitted or null for a genuinely
+system-generated event; detailed system-generated event semantics remain
+unresolved.
 
 ## FR-AUDIT-003
 
-Audit entries shall identify the affected entity.
+Audit entries shall identify an affected entity when a single affected
+domain entity exists. `entityId` is optional when an event has no single
+affected entity.
 
 ## FR-AUDIT-004
 
@@ -1486,16 +1491,18 @@ Audit entries shall include timestamps.
 ## FR-AUDIT-005
 
 AuditLog events shall be append-only and immutable. Corrections shall be
-recorded as new audit events that identify/reference the original event and
-explain the correction; the original event shall be preserved.
+recorded as new audit events that identify/reference the original event
+through `correctsAuditLogId` and explain the correction; the original event
+shall be preserved.
 
 ## FR-AUDIT-006
 
-The system shall support blockchain transaction references in audit
-records.
-
-An existing AuditLog record shall not be mutated solely to attach or
-update blockchain proof information.
+The system shall logically associate a selected AuditLog event and its
+fixed `recordHash` with the corresponding blockchain proof operation.
+Asynchronous transaction hashes and lifecycle information shall be held in
+blockchain logical-operation/transaction tracking. An existing AuditLog
+record shall not be mutated to attach, replace, or confirm proof
+information.
 
 ## FR-AUDIT-007
 
@@ -2390,11 +2397,12 @@ Blockchain Verification
 
 # 57. SRS STATUS
 
-**Version:** 1.5\
+**Version:** 1.7\
 **Status:** Active Planning Specification
 
-This version incorporates the current approved business-rule decisions
-and the governance research used during planning.
+This version incorporates the current approved business-rule decisions,
+governance research used during planning, and the clarified AuditLog data
+model and asynchronous blockchain-proof association.
 
 The SRS must be updated whenever an approved business-rule change
 affects software behavior.

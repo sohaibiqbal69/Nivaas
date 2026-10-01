@@ -2,7 +2,7 @@
 
 
 
-Version: 1.6
+Version: 1.7
 
 Status: Implementation Baseline
 
@@ -421,14 +421,43 @@ remain in force. Failed/denied attempts are not made mandatory AuditLog
 events by this decision, and not every user profile edit is required to be
 audited.
 
-The existing AuditLog fields remain the documented structure; no
-actor-role, outcome, request-ID, or correlation-ID fields are added. State
-payloads contain only event-relevant state and exclude credentials, secrets,
-complete personal profiles, and unnecessary sensitive personal
-information. The event's society scope follows the target resource/action;
-a genuinely platform-wide event with no society target may have no society
-ID. Platform-wide `SYSTEM_ADMIN` scope does not confer society membership
-or governance authority.
+The AuditLog model uses MongoDB ObjectIds for `_id` and documented entity
+references. `societyId` is required for society-scoped events and explicitly
+null for genuinely platform-wide events without a society target. `actorId`
+references `User` for a human actor and may be omitted or null for a
+system-generated event; no synthetic user or separate actor model is
+introduced. Detailed system-generated event semantics remain unresolved.
+`action` is a required string/action code without a closed enum. `entityType`
+identifies an affected resource type when applicable, and `entityId` is an
+optional MongoDB ObjectId using the referenced domain entity's existing
+`_id` convention when there is a single affected entity; neither vocabulary
+is an exhaustive enum. `previousState`, `newState`, and `metadata` are optional
+BSON objects subject to the approved audit payload privacy restrictions.
+`ruleVersionId` is an optional reference to `SocietyRuleVersion` when that
+version is used by the action. A correction event references its original
+through the optional self-reference `correctsAuditLogId`.
+
+`recordHash` is required for each persisted event, immutable, and stored as
+a `0x`-prefixed 32-byte hexadecimal string compatible with `bytes32`. It
+excludes itself and later blockchain transaction/proof association. Its
+exact canonical payload fields and serialization remain unresolved.
+`blockchainTransactionHash` remains an optional compatibility field, is not
+authoritative for asynchronous proof, and must not be modified after event
+creation; its legacy/use semantics remain unresolved. `createdAt` is a
+required immutable MongoDB Date generated at creation. AuditLog has no
+`updatedAt`. No actor-role, outcome, request-ID,
+correlation-ID, or other unapproved fields are added. Audit payloads contain
+only event-relevant state and exclude credentials, secrets, complete personal
+profiles, and unnecessary sensitive personal information. The event's
+society scope follows the target resource/action; a genuinely platform-wide
+event with no society target may have no society ID. Platform-wide
+`SYSTEM_ADMIN` scope does not confer society membership or governance
+authority.
+
+The required AuditLog indexes are non-unique `societyId` and compound
+`entityType + entityId`, supporting the documented society-filtered listing
+and entity-specific history query. No other AuditLog indexes or uniqueness
+constraints are approved.
 
 AuditLog and complete audit history remain off-chain. An immutable AuditLog
 event is persisted with its fixed `recordHash`; selected proof submission
@@ -462,10 +491,14 @@ The following AuditLog questions remain unresolved:
 - Whether a single atomic action affecting multiple societies produces
   multiple audit events or another representation
 - How security-event logging for failed/denied attempts is handled
-- The exact AuditLog canonical payload fields included in `recordHash`
+- The exact AuditLog canonical payload fields, hash algorithm choice, and
+  serialization for `recordHash`
+- The exact action-code and entity-type vocabularies
+- The exact permitted key vocabulary for `metadata`
+- Detailed semantics for system-generated AuditLog events
+- Exact legacy/compatibility semantics for `blockchainTransactionHash`
 - The exact blockchain operation/transaction-tracking persistence schema
 - Which network/contract metadata must be retained with an event-level
   proof association
 - The exact API exposure of pending/failed proof state
-- How system-generated events without a human actor are represented
 

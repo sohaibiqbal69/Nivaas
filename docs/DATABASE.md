@@ -1,6 +1,6 @@
 ## Database Specification
 
-**Document:** `DATABASE.md` **Version:** 1.8 **Database:** MongoDB
+**Document:** `DATABASE.md` **Version:** 1.9 **Database:** MongoDB
 **Status:** Active Planning Document --- Revised Governance, Membership & Rule Versioning Schema
 
 ------------------------------------------------------------------------
@@ -1496,6 +1496,7 @@ Stores metadata about uploaded photographs/documents.
     action
     entityType
     entityId
+    correctsAuditLogId
     previousState
     newState
     metadata
@@ -1504,27 +1505,45 @@ Stores metadata about uploaded photographs/documents.
     blockchainTransactionHash
     createdAt
 
-`_id` identifies the audit event. `actorId` identifies the user responsible
-for the action, and `createdAt` records its timestamp. `societyId` is based
-on the target resource/action: it identifies the society for a
-society-scoped event and may be null for a genuinely platform-wide event
-with no society target. It is not derived from the actor's role. A
-platform-wide `SYSTEM_ADMIN` action on a society resource records that
-resource's society without making the actor a society member.
+### Field definitions
+
+| Field | Type and reference | Required / nullability | Constraints and meaning |
+|---|---|---|---|
+| `_id` | MongoDB ObjectId | Required; generated | Identifies the event; immutable. |
+| `societyId` | MongoDB ObjectId reference to `Society` | Required for society-scoped events; explicitly null for genuinely platform-wide events with no society target | Scope follows the target resource/action, not the actor's role. A platform-wide `SYSTEM_ADMIN` action on a society resource records that society without making the actor a member. No multi-society event behavior is defined. |
+| `actorId` | MongoDB ObjectId reference to `User` | Present for a human actor; may be omitted or null for a genuinely system-generated event | No synthetic `SYSTEM` user or separate actor model is defined. Detailed system-generated event semantics remain unresolved. |
+| `action` | String/action code | Required | No closed enum is defined. The exact action vocabulary remains open; examples are not exhaustive. |
+| `entityType` | String | Present when an affected entity is identified | Identifies the affected resource type; no exhaustive enum is defined. |
+| `entityId` | MongoDB ObjectId using the referenced domain entity's existing `_id` convention | Optional | With `entityType`, identifies a single affected domain entity. It is absent when an event has no single affected entity. No special platform-level IDs or multi-entity representation are defined. |
+| `correctsAuditLogId` | MongoDB ObjectId reference to `AuditLog` | Optional; omitted or null for ordinary events | On a correction event, identifies the original event. The original remains unchanged. No larger correction framework is defined. |
+| `previousState` | Optional BSON object | Optional; omitted when no prior state applies | Contains only relevant prior state, not automatically a complete entity snapshot. |
+| `newState` | Optional BSON object | Optional; omitted when no resulting state applies | Contains only relevant resulting state. |
+| `metadata` | Optional BSON object | Optional; omitted when unused | Limited event context not represented by primary fields. It is not an unrestricted request-body dump; its key vocabulary remains open. |
+| `ruleVersionId` | MongoDB ObjectId reference to `SocietyRuleVersion` | Optional | Present only when the audited action uses a society rule version. Immutable after event creation. |
+| `recordHash` | Required BSON String containing a `0x`-prefixed 32-byte hexadecimal value (bytes32-compatible) | Required for every persisted event | Fixed and immutable when persisted; represents a deterministic commitment to immutable AuditLog event content. It excludes itself and later blockchain transaction/proof association. Exact payload fields, hash algorithm choice, and serialization are deferred to a separate decision. |
+| `blockchainTransactionHash` | Optional BSON String | Optional; may be omitted | Retained for compatibility. It is not authoritative for asynchronous proof transaction hashes and must not be updated after event creation. Its exact legacy/compatibility semantics and format validation remain unresolved. |
+| `createdAt` | MongoDB Date | Required; generated at creation | Records event creation time and is immutable. No separate `occurredAt` field is defined. |
+
+All event fields are immutable after persistence. `updatedAt` is not part of
+AuditLog. The canonical hash payload field list and serialization are not
+defined here; apart from the explicit exclusions for `recordHash` itself
+and later blockchain transaction/proof association, exact hash participation
+remains for the separate canonical-hash decision.
 
 `previousState` and `newState` represent only state relevant to the
 particular audited event, not automatically complete entity snapshots.
 Audit payloads must not contain passwords, password hashes, account-setup
 credentials/tokens, JWTs, secrets, complete personal profiles, or
-unnecessary sensitive personal information.
+unnecessary sensitive personal information. `metadata` is subject to the
+same restrictions and must not contain complete request bodies.
 
 AuditLog events are append-only and immutable: an existing event must not
 be edited or deleted. A correction is a new audit event that identifies or
-references the original event and explains the correction; the original
-event is preserved. The original event is persisted with its fixed
-`recordHash`. Its blockchain proof may be submitted asynchronously through
-the blockchain logical-operation/transaction-tracking layer. That layer
-must associate the operation with the AuditLog event and its fixed
+references the original event through `correctsAuditLogId` and explains the
+correction; the original event is preserved. The original event is persisted
+with its fixed `recordHash`. Its blockchain proof may be submitted
+asynchronously through the blockchain logical-operation/transaction-tracking
+layer. That layer must associate the operation with the AuditLog event and its fixed
 `recordHash`; transaction hashes and lifecycle states belong to that
 tracking layer. Retries or replacements remain associated with the same
 logical operation and original event. A blockchain failure does not change
@@ -1693,8 +1712,17 @@ transaction is confirmed.
 
 # 44. INDEXING
 
-Indexes should be created for frequently queried fields. Potential
-indexes:
+Indexes should be created for frequently queried fields. The following
+AuditLog indexes are required by the society-filtered audit listing and
+entity-specific audit-history query:
+
+    auditLogs.societyId
+    auditLogs.entityType + entityId
+
+These indexes are non-unique. No additional AuditLog indexes or uniqueness
+constraints are specified.
+
+Other potential indexes:
 
     users.email (unique)
     users.societyId
@@ -1740,9 +1768,6 @@ indexes:
     notices.societyId
     notices.status
     notices.publishedAt
-
-    auditLogs.societyId
-    auditLogs.entityType + entityId
 
     electionEligibleVoters.electionId
     anonymousBallots.electionId
@@ -1816,7 +1841,7 @@ transaction hashes.
 
 # 49. DATABASE STATUS
 
-Version 1.8 --- Active Planning Document. Revised to align with SRS v1.6, Business Rules v1.7, API v1.7 and Architecture v1.7. The schema now explicitly separates ownership, residence and membership, distinguishes platform-wide System Administrator accounts from society-scoped users, documents account setup and the defined User status lifecycle without adding credential fields, specifies unique login email identity, defines append-only AuditLog event semantics and target-based society scope, assigns asynchronous AuditLog proof association and transaction lifecycle tracking to the blockchain operation layer, adds versioned society rules, approval evaluations and governance eligibility snapshots, and preserves historical decision context. The database schema must not be changed by an AI coding agent without considering the effects on:
+Version 1.9 --- Active Planning Document. Revised to align with SRS v1.7, Business Rules v1.7, API v1.7 and Architecture v1.8. The schema now explicitly separates ownership, residence and membership, distinguishes platform-wide System Administrator accounts from society-scoped users, documents account setup and the defined User status lifecycle without adding credential fields, specifies unique login email identity, defines the AuditLog field types, optionality, correction reference, immutability, required indexes and target-based society scope, assigns asynchronous AuditLog proof association and transaction lifecycle tracking to the blockchain operation layer, adds versioned society rules, approval evaluations and governance eligibility snapshots, and preserves historical decision context. The database schema must not be changed by an AI coding agent without considering the effects on:
 
 -   SRS
 -   BUSINESS_RULES.md
