@@ -37,6 +37,7 @@ async function makeUserRecord(userSocietyId: string | null = societyId): Promise
     name: 'Test User',
     email: 'person@example.com',
     role: 'OWNER_MEMBER',
+    status: 'ACTIVE',
     passwordHash: await hashPassword(password),
   };
 }
@@ -103,6 +104,26 @@ describe('authentication service and login endpoint', () => {
     expect(result.user).not.toHaveProperty('token');
     const verified = await jwtVerify(result.token, new TextEncoder().encode(jwtSecret));
     expect(verified.payload.sub).toBe(userId);
+  });
+
+  it.each(['PENDING_SETUP', 'DISABLED'])('rejects normal password login for a %s account generically', async (status) => {
+    const user = await makeUserRecord();
+    user.status = status;
+    const service = new AuthenticationService(
+      { findByEmail: async (email) => email === user.email ? user : null },
+      () => jwtConfiguration,
+    );
+    const app = createLoginApp(service);
+    const response = await fetch(`${await startServer(app)}/login`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: user.email, password }),
+    });
+
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({
+      success: false,
+      error: { code: 'UNAUTHORIZED', message: 'The email or password is incorrect.' },
+    });
   });
 
   it('returns the same generic authentication failure for a wrong password and an unknown email', async () => {

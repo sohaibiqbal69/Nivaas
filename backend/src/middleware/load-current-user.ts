@@ -14,6 +14,7 @@ export type CurrentUserRecord = {
   _id: { toString(): string };
   societyId: { toString(): string } | null;
   role: string;
+  status: string;
 };
 
 export type CurrentUserRepository = {
@@ -22,7 +23,7 @@ export type CurrentUserRepository = {
 
 const userRepository: CurrentUserRepository = {
   async findById(userId) {
-    return User.findById(userId).select('_id societyId role').lean().exec() as Promise<CurrentUserRecord | null>;
+    return User.findById(userId).select('_id societyId role status').lean().exec() as Promise<CurrentUserRecord | null>;
   },
 };
 
@@ -37,6 +38,11 @@ export function createLoadCurrentUser(repository: CurrentUserRepository = userRe
     try {
       const user = await repository.findById(userId);
       if (!user) {
+        next(new ApiError(401, 'UNAUTHORIZED', 'Authentication is required.'));
+        return;
+      }
+
+      if (user.status !== 'ACTIVE') {
         next(new ApiError(401, 'UNAUTHORIZED', 'Authentication is required.'));
         return;
       }

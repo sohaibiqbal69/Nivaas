@@ -12,6 +12,7 @@ export type LoginUserRecord = {
   name: string;
   email: string;
   role: string;
+  status: string;
   passwordHash: string;
 };
 
@@ -49,7 +50,7 @@ export class AuthenticationService {
   async login(email: string, password: string): Promise<AuthenticationResult> {
     const user = await this.repository.findByEmail(email);
     const passwordIsValid = await verifyPassword(password, user?.passwordHash ?? DUMMY_PASSWORD_HASH);
-    if (!user || !passwordIsValid) {
+    if (!user || user.status !== 'ACTIVE' || !passwordIsValid) {
       throw new ApiError(401, 'UNAUTHORIZED', 'The email or password is incorrect.');
     }
 

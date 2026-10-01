@@ -31,11 +31,12 @@ afterEach(async () => {
   })));
 });
 
-function record(userId: string, societyId: string | null, role = 'OWNER_MEMBER'): CurrentUserRecord {
+function record(userId: string, societyId: string | null, role = 'OWNER_MEMBER', status = 'ACTIVE'): CurrentUserRecord {
   return {
     _id: { toString: () => userId },
     societyId: societyId === null ? null : { toString: () => societyId },
     role,
+    status,
   };
 }
 
@@ -196,5 +197,41 @@ describe('authorization foundation', () => {
       .not.toThrow();
     expect(() => assertSameSociety({ userId: userAId, societyId: societyAId, role: 'OWNER_MEMBER' }, societyBId))
       .toThrow(/permission/);
+  });
+
+  it.each(['PENDING_SETUP', 'DISABLED'])('rejects a valid JWT for a persisted %s user', async (status) => {
+    const { app } = createProtectedApp(new Map([[userAId, record(userAId, societyAId, 'OWNER_MEMBER', status)]]));
+    const token = await issueAccessToken(userAId, jwtConfiguration);
+    const response = await fetch(`${await startServer(app)}/same-society`, {
+      method: 'POST', headers: bearer(token),
+    });
+
+    expect(response.status).toBe(401);
+    expect(await response.json()).toMatchObject({
+      success: false,
+      error: { code: 'UNAUTHORIZED', message: 'Authentication is required.' },
+    });
+  });
+
+  it.each(['PENDING_SETUP', 'DISABLED'])('rejects an existing JWT after persisted status changes from ACTIVE to %s', async (status) => {
+    const records = new Map([[userAId, record(userAId, societyAId)]]);
+    const { app } = createProtectedApp(records);
+    const token = await issueAccessToken(userAId, jwtConfiguration);
+    const baseUrl = await startServer(app);
+    const activeResponse = await fetch(`${baseUrl}/same-society`, {
+      method: 'POST', headers: bearer(token),
+    });
+    expect(activeResponse.status).toBe(200);
+
+    records.set(userAId, record(userAId, societyAId, 'OWNER_MEMBER', status));
+    const changedStatusResponse = await fetch(`${baseUrl}/same-society`, {
+      method: 'POST', headers: bearer(token),
+    });
+
+    expect(changedStatusResponse.status).toBe(401);
+    expect(await changedStatusResponse.json()).toMatchObject({
+      success: false,
+      error: { code: 'UNAUTHORIZED', message: 'Authentication is required.' },
+    });
   });
 });

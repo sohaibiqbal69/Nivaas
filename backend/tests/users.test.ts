@@ -41,6 +41,7 @@ function currentUser(userId: string, societyId: string | null, role: string): Cu
     _id: new Types.ObjectId(userId),
     societyId: societyId === null ? null : new Types.ObjectId(societyId),
     role,
+    status: 'ACTIVE',
   };
 }
 
