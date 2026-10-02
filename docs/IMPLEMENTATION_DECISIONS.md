@@ -2,7 +2,7 @@
 
 
 
-Version: 1.9
+Version: 1.10
 
 Status: Implementation Baseline
 
@@ -343,29 +343,45 @@ other protected governance history.
 ## 7. User Creation and Initial Credential
 
 `POST /users` creates an account without accepting a permanent password or
-`passwordHash` from the administrator. A new account enters pending setup.
-The backend generates a single-use account-setup credential; the user
-establishes their own password through the account-setup flow. The
-credential cannot be reused after successful consumption or invalidation.
-The administrator never receives or sets the permanent password. The
-existing authentication/password-hashing mechanism is the implementation
-basis when the user establishes the password.
+`passwordHash` from the administrator. A new account enters `PENDING_SETUP`
+without a password hash until setup succeeds.
+The backend generates a single-use account-setup credential consisting of
+32 cryptographically random bytes represented using URL-safe base64. It is
+associated with the intended User, expires 24 hours after generation, and
+only its cryptographic hash is stored. The raw credential is never
+persisted. `POST /auth/setup` accepts `credential` and `newPassword`; only
+`PENDING_SETUP` accounts may use it. The password must be at least 8
+characters and is stored using the existing scrypt password-hashing
+mechanism. The administrator never receives or sets the permanent password.
 
-Credential delivery is implementation-specific and is not part of the core
-user API contract. Account setup is separate from society membership,
-ownership, residence/occupancy, committee membership, and governance/voting
-eligibility. This decision does not define a setup endpoint or request/
-response fields.
+Successful setup atomically stores the password hash, consumes the
+credential, transitions the User to `ACTIVE`, and creates the mandatory
+AuditLog event for that successful status transition. Invalid, expired,
+consumed/replayed credentials and ineligible account statuses receive the
+same generic 401 response. The success response uses the API success
+envelope with empty `data` and includes no credential, secret, password
+hash, or authentication token. Credential generation, consumption alone,
+and failed setup attempts do not create separate AuditLog events.
+
+The initial setup flow does not include credential regeneration or resend;
+any reissue is a future administration capability. Credential delivery is
+implementation-specific, and no provider is selected. Account setup remains
+separate from society membership, ownership, residence/occupancy, committee
+membership, and governance/voting eligibility.
 
 The following decisions remain unresolved and must not be inferred during
 implementation:
 
-- Setup-token expiry
-- Password complexity requirements
+- The credential-hash algorithm and encoded representation
+- Credential retention/cleanup after expiry or consumption
+- Whether disabling a pending account invalidates its unexpired credential
+  and whether that requires reissue after reactivation
+- The future administration API/process for credential regeneration/resend
 - Forgot-password flow
 - Email provider or delivery implementation
 - Email identity case/normalization policy
 - Email verification, reauthentication, or notification behavior
+- Password requirements beyond the approved 8-character minimum
 
 ## 8. User Profile and Account-Information Update Fields
 
@@ -384,13 +400,16 @@ verification, reauthentication, password reset, or notification behavior.
 
 The only User account status values are `PENDING_SETUP`, `ACTIVE`, and
 `DISABLED`. The permitted transitions are `PENDING_SETUP` to `ACTIVE`,
-`PENDING_SETUP` to `DISABLED`, `ACTIVE` to `DISABLED`, and `DISABLED` to
-`ACTIVE`.
+`PENDING_SETUP` to `DISABLED`, `ACTIVE` to `DISABLED`, `DISABLED` entered
+from `ACTIVE` to `ACTIVE`, and `DISABLED` entered from `PENDING_SETUP` to
+`PENDING_SETUP`. The required status-transition AuditLog state records the
+previous and resulting statuses to preserve which lifecycle state is
+restored. A pending account cannot become active through administrator
+reactivation; setup remains required.
 
 `PENDING_SETUP` accounts cannot authenticate with a normal password or
-access protected application APIs; they may use only the future account-
-setup mechanism once its API is specified, and become `ACTIVE` only after
-successful account setup. `DISABLED` accounts cannot authenticate or access
+access protected application APIs; they may use only `POST /auth/setup`,
+and become `ACTIVE` only after successful account setup. `DISABLED` accounts cannot authenticate or access
 protected APIs. Persisted User status is authoritative, and JWT possession
 does not override `PENDING_SETUP` or `DISABLED` status.
 

@@ -1,6 +1,6 @@
 ## Database Specification
 
-**Document:** `DATABASE.md` **Version:** 1.11 **Database:** MongoDB
+**Document:** `DATABASE.md` **Version:** 1.12 **Database:** MongoDB
 **Status:** Active Planning Document --- Revised Governance, Membership & Rule Versioning Schema
 
 ------------------------------------------------------------------------
@@ -187,16 +187,20 @@ and `DISABLED`. The permitted lifecycle transitions are:
 PENDING_SETUP -> ACTIVE
 PENDING_SETUP -> DISABLED
 ACTIVE -> DISABLED
-DISABLED -> ACTIVE
+DISABLED (entered from ACTIVE) -> ACTIVE
+DISABLED (entered from PENDING_SETUP) -> PENDING_SETUP
 ```
 
 `PENDING_SETUP` means the newly created account has not completed account/
 password setup. Such an account cannot authenticate with a normal password
-or access protected application APIs; it may use only the future account-
-setup mechanism once that API is specified. It becomes `ACTIVE` only after
-successful account setup. A `DISABLED` account cannot authenticate or
-access protected application APIs, and JWT possession does not override
-persisted status.
+or access protected application APIs; it may use `POST /auth/setup`. It
+becomes `ACTIVE` only after successful account setup. A `DISABLED` account
+cannot authenticate or access protected application APIs, and JWT
+possession does not override persisted status. Reactivation restores the
+status from which the user entered `DISABLED`; a user disabled from
+`PENDING_SETUP` returns to that state and still requires setup. Required
+status-transition AuditLog events record `previousState.status` and
+`newState.status` so the lifecycle origin is retained.
 
 Account setup and status are separate from ownership, residence/occupancy,
 society membership, committee membership, and governance/voting eligibility.
@@ -205,9 +209,66 @@ relationships associated with that User.
 
 The backend generates a single-use account-setup credential so the user can
 establish a password. It cannot be reused after successful consumption or
-invalidation, and the administrator does not receive or set the permanent
-password. No additional credential field, storage representation, expiry,
-or delivery mechanism is defined by this database specification.
+expiry, and the administrator does not receive or set the permanent
+password. The raw credential is never stored. Its dedicated persistence is
+defined below; delivery remains implementation-specific.
+
+`passwordHash` is absent while a user is `PENDING_SETUP` and is populated
+only when the user successfully establishes a password through setup. A
+user disabled from `PENDING_SETUP` remains without a password hash and
+returns to `PENDING_SETUP` when reactivated. A user disabled from `ACTIVE`
+retains their established password hash and returns to `ACTIVE` when
+reactivated. No placeholder or administrator-supplied password hash is
+used for pending setup.
+
+## AccountSetupCredential
+
+### Collection
+
+    accountSetupCredentials
+
+### Purpose
+
+Stores only the hash and lifecycle information for a one-time initial
+account-setup credential. It is not a generic token framework.
+
+### Fields
+
+    _id
+    userId
+    credentialHash
+    createdAt
+    expiresAt
+    consumedAt
+
+- `_id` is a generated MongoDB ObjectId.
+- `userId` is a required ObjectId reference to the intended `User`.
+- `credentialHash` is a required String containing a cryptographic hash of
+  the raw credential;
+  raw credential material must never be persisted. Its hash algorithm and
+  encoded representation remain an implementation decision.
+- `createdAt` is a required MongoDB Date generation timestamp. `expiresAt`
+  is a required MongoDB Date exactly 24 hours after generation.
+- `consumedAt` is an optional MongoDB Date, absent or null until successful
+  setup, then records
+  consumption. A consumed credential cannot be used again.
+- The credential is usable only while unconsumed, unexpired, and associated
+  with a User currently in `PENDING_SETUP` status.
+
+The credential lookup requires a unique index on `credentialHash`. No
+additional indexes or uniqueness constraints are specified here. Expired
+credential retention/cleanup and any credential invalidation mechanism
+beyond consumption and expiry remain unspecified. Credential regeneration
+or resend is not part of the initial setup capability.
+
+Successful account setup must atomically persist the new User password hash,
+consume the credential, change User status from `PENDING_SETUP` to `ACTIVE`,
+and append the mandatory AuditLog status-transition event. The deployment
+must support the MongoDB transaction needed to prevent partial completion.
+The AuditLog transition records `previousState.status` and `newState.status`
+so a later reactivation can restore the account's lifecycle state. No
+separate AuditLog event is required for credential generation, consumption
+alone, or failed setup attempts.
 
 `email` is a unique login identity across user accounts. The case and
 normalization policy used to determine email identity is not specified.
@@ -1938,7 +1999,7 @@ transaction hashes.
 
 # 49. DATABASE STATUS
 
-Version 1.11 --- Active Planning Document. Revised to align with SRS v1.8, Business Rules v1.8, API v1.8 and Architecture v1.10. The schema now explicitly separates ownership, residence and membership, distinguishes platform-wide System Administrator accounts from society-scoped users, documents nullable `societyId` for `SYSTEM_ADMIN` and non-null society association for society-scoped roles, documents account setup and the defined User status lifecycle without adding credential fields, specifies unique login email identity, defines the AuditLog field types, optionality, correction reference, immutability, required indexes, target-based society scope and versioned canonical hash protocol, assigns asynchronous AuditLog proof association and transaction lifecycle tracking to the blockchain operation layer, adds versioned society rules, approval evaluations and governance eligibility snapshots, and preserves historical decision context. The database schema must not be changed by an AI coding agent without considering the effects on:
+Version 1.12 --- Active Planning Document. Revised to align with SRS v1.9, Business Rules v1.9, API v1.9 and Architecture v1.11. The schema now explicitly separates ownership, residence and membership, distinguishes platform-wide System Administrator accounts from society-scoped users, documents nullable `societyId` for `SYSTEM_ADMIN` and non-null society association for society-scoped roles, specifies pending-setup password-hash state and dedicated one-time account-setup credential persistence, documents the defined User status lifecycle and reactivation behavior, specifies unique login email identity, defines the AuditLog field types, optionality, correction reference, immutability, required indexes, target-based society scope and versioned canonical hash protocol, assigns asynchronous AuditLog proof association and transaction lifecycle tracking to the blockchain operation layer, adds versioned society rules, approval evaluations and governance eligibility snapshots, and preserves historical decision context. The database schema must not be changed by an AI coding agent without considering the effects on:
 
 -   SRS
 -   BUSINESS_RULES.md

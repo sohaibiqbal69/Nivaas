@@ -1,7 +1,7 @@
 # Software Requirements Specification
 
 **Document:** `SRS.md`\
-**Version:** 1.8\
+**Version:** 1.9\
 **Status:** Active Planning Specification\
 **Project:** Nivaas --- Blockchain-Based Apartment Society
 Governance System
@@ -349,19 +349,27 @@ permission changes.
 
 When the System Administrator creates an account, the request shall not
 accept a permanent password or `passwordHash`. A newly created account
-shall enter `PENDING_SETUP`. User account status shall have exactly these
-values: `PENDING_SETUP`, `ACTIVE`, and `DISABLED`. The permitted lifecycle
+shall enter `PENDING_SETUP` without a password hash until setup succeeds.
+User account status shall have exactly these values: `PENDING_SETUP`,
+`ACTIVE`, and `DISABLED`. The permitted lifecycle
 transitions are `PENDING_SETUP` to `ACTIVE`, `PENDING_SETUP` to `DISABLED`,
-`ACTIVE` to `DISABLED`, and `DISABLED` to `ACTIVE`.
+`ACTIVE` to `DISABLED`, `DISABLED` entered from `ACTIVE` to `ACTIVE`, and
+`DISABLED` entered from `PENDING_SETUP` to `PENDING_SETUP`. Reactivation
+shall restore the state from which the account was disabled; a pending
+account shall not become active through administrator reactivation.
 
 ## FR-USER-006
 
 The backend shall generate a single-use account-setup credential that
-allows the user to establish their own password. The credential shall not
-be reusable after successful consumption or invalidation. The administrator
-shall never receive or set the user's permanent password. The existing
-authentication/password-hashing mechanism shall be used when the user
-establishes the password.
+allows the user to establish their own password. The credential shall
+consist of 32 cryptographically random bytes represented using URL-safe
+base64, be associated with its intended User, and expire 24 hours after
+generation. Only a cryptographic hash of the credential shall be stored;
+the raw credential shall never be persisted. It shall not be reusable after
+successful consumption or expiry. The administrator shall never receive or
+set the user's permanent password. The existing scrypt password-hashing
+mechanism shall be used when the user establishes the password. The exact
+credential-hash algorithm remains unspecified.
 
 ## FR-USER-007
 
@@ -390,9 +398,9 @@ notification behavior are not defined by this requirement.
 ## FR-USER-010
 
 An account in `PENDING_SETUP` shall not authenticate with a normal password
-or access protected application APIs. It may use only the future account-
-setup mechanism once that API is specified, and shall become `ACTIVE` only
-after successful account setup.
+or access protected application APIs. It may use `POST /api/auth/setup` to
+complete initial setup, and shall become `ACTIVE` only after successful
+account setup.
 
 ## FR-USER-011
 
@@ -434,6 +442,23 @@ User list/profile API responses shall use the safe User representation
 defined in `API.md` and shall not expose password hashes, passwords,
 account-setup credentials/tokens, JWTs, secrets, internal authentication
 material, or raw database documents.
+
+## FR-USER-016
+
+`POST /api/auth/setup` shall accept the one-time setup `credential` and a
+`newPassword` of at least 8 characters. Only a persisted `PENDING_SETUP`
+User may complete setup; `ACTIVE` and `DISABLED` accounts are ineligible.
+Invalid, expired, consumed/replayed credentials and ineligible accounts
+shall receive the same generic HTTP 401 `UNAUTHORIZED` response. Malformed
+requests or a too-short password shall receive HTTP 400 `VALIDATION_ERROR`.
+
+Successful setup shall atomically store the user's scrypt password hash,
+consume the credential, transition status to `ACTIVE`, and create the
+mandatory AuditLog event for that status transition. The success response
+shall use the standard API envelope with empty `data`; it shall not return
+the credential, password hash, secrets, or an authentication token. The
+user may then authenticate through normal login. Credential regeneration
+or resend is outside the initial setup capability.
 
 ------------------------------------------------------------------------
 
@@ -2423,13 +2448,14 @@ Blockchain Verification
 
 # 57. SRS STATUS
 
-**Version:** 1.8\
+**Version:** 1.9\
 **Status:** Active Planning Specification
 
 This version incorporates the current approved business-rule decisions,
 governance research used during planning, the clarified AuditLog data model
 and asynchronous blockchain-proof association, and the user-list/profile
-access and safe-response requirements.
+access and safe-response requirements, plus the initial account-setup API,
+credential lifecycle, atomic status transition, and reactivation behavior.
 
 The SRS must be updated whenever an approved business-rule change
 affects software behavior.

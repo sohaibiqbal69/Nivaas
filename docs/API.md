@@ -1,6 +1,6 @@
 ## REST API Specification
 
-**Document:** `API.md` **Version:** 1.8 **Base URL:** `/api` **Status:**
+**Document:** `API.md` **Version:** 1.9 **Base URL:** `/api` **Status:**
 Active Planning Document — Revised Membership, Rule Configuration,
 Approval & Governance APIs
 
@@ -154,6 +154,67 @@ protected API.
 
 ------------------------------------------------------------------------
 
+## POST `/auth/setup`
+
+Complete initial setup for a `PENDING_SETUP` account. This endpoint uses
+the one-time setup credential, not a normal login or bearer JWT. Only a
+user whose persisted status is `PENDING_SETUP` may complete setup. `ACTIVE`
+and `DISABLED` accounts are not eligible.
+
+### Request
+
+    {
+      "credential": "<one-time setup credential>",
+      "newPassword": "<password of at least 8 characters>"
+    }
+
+The backend-generated credential consists of 32 cryptographically random
+bytes represented using URL-safe base64. It is single-use and expires 24
+hours after generation. The backend stores only a cryptographic hash of the
+credential, associated with its intended User; it never stores the raw
+credential. Credential delivery is implementation-specific and no email or
+SMS provider is selected.
+
+The new password must contain at least 8 characters and is stored using the
+existing scrypt password-hashing mechanism. No additional password
+complexity requirement is imposed by this checkpoint. The request must not
+accept a `passwordHash`.
+
+### Success response
+
+HTTP 200:
+
+    {
+      "success": true,
+      "data": {}
+    }
+
+The response contains no credential, password hash, secret, or
+authentication token. The user may authenticate through `POST /auth/login`
+after setup succeeds.
+
+Successful setup atomically establishes the password hash, consumes the
+credential, changes status from `PENDING_SETUP` to `ACTIVE`, and creates
+the mandatory AuditLog event for that status transition. These changes must
+not partially succeed.
+
+### Errors
+
+- Missing or malformed request fields, or a password shorter than 8
+  characters: HTTP 400 `VALIDATION_ERROR`.
+- Invalid, expired, consumed/replayed credential, or an account status that
+  is not eligible for setup: HTTP 401 `UNAUTHORIZED` with the same generic
+  response for all these cases. The response must not reveal whether a User,
+  credential, or particular credential state exists.
+
+Credential generation, credential consumption by itself, and failed setup
+attempts do not create separate AuditLog events under this contract.
+
+Credential regeneration/resend is not part of this endpoint or the initial
+setup flow; any future reissue is a separate administration capability.
+
+------------------------------------------------------------------------
+
 ## POST `/auth/logout`
 
 Log out the current user.
@@ -239,15 +300,18 @@ explicitly permits that role. Account creation must not accept a permanent
 password or `passwordHash` from the administrator. A newly created account
 enters pending setup, and the backend generates a single-use account-setup
 credential that the user consumes to establish their own password. The
-credential cannot be reused after successful consumption or invalidation.
-The administrator must never receive or set the user's permanent password.
+credential expires 24 hours after generation and cannot be reused after
+successful consumption or expiry.
+The newly created `PENDING_SETUP` User has no password hash until setup
+succeeds. The administrator must never receive or set the user's permanent
+password.
 
 Credential delivery is implementation-specific and is not part of this
 core user API; no delivery provider or service is required by this contract.
-This decision does not define setup-token expiry, password complexity, or
-the account-setup API contract. The existing authentication/password-hashing
-mechanism is the basis when the user establishes a password. Account setup
-is separate from society membership, ownership, residence/occupancy,
+The setup API contract is defined by `POST /auth/setup` above. The existing
+scrypt password-hashing mechanism is used when the user establishes a
+password, which must be at least 8 characters for this setup flow. Account
+setup is separate from society membership, ownership, residence/occupancy,
 committee membership, and governance/voting eligibility.
 
 ------------------------------------------------------------------------
@@ -1775,14 +1839,14 @@ Whenever an API changes, the AI developer must update:
 
 # 39. API STATUS
 
-Version 1.8 — Active Planning Document.
+Version 1.9 — Active Planning Document.
 
-Revised to align with SRS v1.8, Business Rules v1.8, Architecture v1.10 and
-Database v1.11. The API now explicitly supports the membership/eligibility
+Revised to align with SRS v1.9, Business Rules v1.9, Architecture v1.11 and
+Database v1.12. The API now explicitly supports the membership/eligibility
 layer, versioned governance configuration, approval re-evaluation,
 meeting/quorum workflows, governance-result finalization and retry-safe
-critical operations, and the user-list, user-profile access, and safe user
-response rules.
+critical operations, user-list/profile access and safe user responses, and
+the one-time initial account-setup endpoint and contract.
 
 The API is the contract between the frontend and backend. No AI coding
 agent should invent or silently change API behavior.

@@ -1,7 +1,7 @@
 ## System Architecture Specification
 
 **Document:** `ARCHITECTURE.md`
-**Version:** 1.10
+**Version:** 1.11
 **Status:** Active Planning Document — Revised Governance, Rule Engine & Blockchain Architecture
 
 ---
@@ -389,16 +389,30 @@ Blockchain reference
 
 # 16. AUTHENTICATION FLOW
 
-When a user account is created, the backend generates a single-use
-account-setup credential. The user uses the account-setup flow to establish
-their own password, which uses the existing authentication/password-hashing
-mechanism. Successful consumption or invalidation prevents reuse. The
-credential's delivery is implementation-specific; this architecture does
-not select a delivery provider or define a setup endpoint/API contract,
-token expiry, or password complexity requirement. Account setup does not
-establish society membership, ownership, residence/occupancy, committee
-membership, or governance/voting eligibility. The administrator does not
-receive or set a user's permanent password.
+When a user account is created, the backend generates a single-use setup
+credential consisting of 32 cryptographically random bytes represented as
+URL-safe base64. The credential is associated with the intended User; only
+its cryptographic hash is persisted in the dedicated account-setup
+credential record, never the raw value. It expires 24 hours after
+generation. `POST /api/auth/setup` accepts the credential and the user's
+new password, which must be at least 8 characters and is stored using the
+existing scrypt password-hashing mechanism. No additional password
+complexity requirement is imposed for this setup checkpoint. The
+credential's exact hash algorithm remains an implementation decision.
+Delivery remains implementation-specific; no email/SMS provider is
+selected.
+
+Only a persisted `PENDING_SETUP` user may complete setup. An `ACTIVE` or
+`DISABLED` account cannot use the setup endpoint. Successful setup
+atomically stores the password hash, consumes the credential, transitions
+the User to `ACTIVE`, and appends the mandatory AuditLog event for that
+status transition. The API success response does not include a credential,
+password hash, secret, or authentication token; the user signs in through
+normal login afterward. Credential regeneration/resend is outside the
+initial setup flow. Account setup does not establish society membership,
+ownership, residence/occupancy, committee membership, or governance/voting
+eligibility. The administrator does not receive or set a user's permanent
+password.
 
 The basic authentication flow is:
 
@@ -406,8 +420,19 @@ Before issuing authentication or authorizing a protected API request, the
 backend must use the persisted User status as the account-state authority.
 Only `ACTIVE` accounts can authenticate or access protected APIs. A
 previously issued JWT cannot override `PENDING_SETUP` or `DISABLED` status.
-The later authentication implementation must apply this check; this
-specification update does not change the current implementation.
+The backend checks persisted status during normal login and protected
+current-user loading.
+
+The status lifecycle distinguishes the state from which an account entered
+`DISABLED`: a disabled account previously `ACTIVE` returns to `ACTIVE`,
+while one previously `PENDING_SETUP` returns to `PENDING_SETUP` and still
+requires setup. The required AuditLog status-transition event records the
+previous and resulting status so this lifecycle is preserved.
+
+Successful setup changes the credential record, User, and AuditLog event
+as one MongoDB transaction. The deployed MongoDB topology must support
+multi-document transactions so partial setup completion cannot be
+persisted.
 
 ```
 User
@@ -1227,5 +1252,5 @@ AI coding tools must:
 
 # 43. ARCHITECTURE STATUS
 
-Version 1.10 — Active Planning Document. Revised to align with SRS v1.8, Business Rules v1.8, API v1.8 and Database v1.11, explicitly introducing the modular-monolith domain structure, membership/eligibility layer, versioned rule configuration, Approval Engine, Governance Resolution architecture, blockchain transaction boundaries, separate platform/society authorization scopes, nullable platform-administrator society context, user-list/profile access and safe-response boundaries, user-established initial credentials, persisted account-status authentication checks, the typed immutable AuditLog model and correction reference, asynchronous proof association through blockchain transaction tracking, and versioned canonical AuditLog hashing.
+Version 1.11 — Active Planning Document. Revised to align with SRS v1.9, Business Rules v1.9, API v1.9 and Database v1.12, explicitly introducing the modular-monolith domain structure, membership/eligibility layer, versioned rule configuration, Approval Engine, Governance Resolution architecture, blockchain transaction boundaries, separate platform/society authorization scopes, nullable platform-administrator society context, user-list/profile access and safe-response boundaries, one-time account-setup credential persistence and atomic setup flow, persisted account-status enforcement and lifecycle restoration, the typed immutable AuditLog model and correction reference, asynchronous proof association through blockchain transaction tracking, and versioned canonical AuditLog hashing.
 Any major architectural change must update this document and the affected technical specifications.

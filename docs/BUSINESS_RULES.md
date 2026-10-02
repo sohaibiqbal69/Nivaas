@@ -1,6 +1,6 @@
 # Business Rules Specification
 
-**Version:** 1.8 
+**Version:** 1.9 
 **Status:** Active — Planning Baseline
 **Planning Document** --- Revised Governance, Voting & Approval Rules 
 **Project:** Blockchain-Based Apartment Society Governance System
@@ -140,9 +140,10 @@ When the System Administrator creates a user account, the administrator
 must not provide or receive the user's permanent password. The account
 enters pending setup, and the backend generates a single-use account-setup
 credential for the user to establish their own password. The credential
-cannot be reused after successful consumption or invalidation. The existing
+cannot be reused after successful consumption or expiry. The existing
 authentication/password-hashing mechanism is used when the user establishes
-the password.
+the password. A `PENDING_SETUP` User has no password hash until successful
+setup establishes one.
 
 Credential delivery is implementation-specific; no delivery provider or
 service is mandated by this business rule. Account setup is distinct from
@@ -150,8 +151,32 @@ ownership, residence/occupancy, society membership, committee membership,
 and governance/voting eligibility. Account status values and permitted
 lifecycle transitions are defined in the User Account Status Policy below.
 
-Setup-token expiry, password complexity, forgot-password behavior, and
-account-setup-specific audit behavior remain unspecified.
+Password requirements beyond the 8-character minimum, the setup-credential
+hash algorithm, forgot-password behavior, and credential retention/cleanup
+remain unspecified. Audit requirements for setup are limited to the
+mandatory successful User status-transition event described below; separate
+credential-generation, credential-consumption, and failed-attempt events
+are not required.
+
+Initial account setup is completed through `POST /auth/setup` as defined in
+`API.md`. The setup credential is 32 cryptographically random bytes in
+URL-safe base64 form. Only its cryptographic hash is stored, with its
+intended User, and it expires 24 hours after generation. It is single-use;
+invalid, expired, consumed/replayed credentials and ineligible account
+statuses receive the same generic 401 response. The setup request accepts
+the credential and a new password of at least 8 characters. Passwords use
+the existing scrypt hashing mechanism. Credential delivery remains
+implementation-specific; no provider is selected. Credential regeneration
+or resend is outside the initial setup flow and is a future administration
+capability. Expiry does not itself change User status; an expired account
+remains `PENDING_SETUP` pending a permitted status transition or future
+credential reissue.
+
+Successful setup atomically stores the password hash, consumes the
+credential, transitions `PENDING_SETUP` to `ACTIVE`, and creates the
+mandatory AuditLog event for that successful status transition. Credential
+generation, consumption by itself, and failed setup attempts do not create
+separate AuditLog events under the current rules.
 
 ## User Account Status Policy
 
@@ -167,14 +192,26 @@ The permitted lifecycle transitions are:
 PENDING_SETUP -> ACTIVE
 PENDING_SETUP -> DISABLED
 ACTIVE -> DISABLED
-DISABLED -> ACTIVE
+DISABLED (entered from ACTIVE) -> ACTIVE
+DISABLED (entered from PENDING_SETUP) -> PENDING_SETUP
 ```
 
 `PENDING_SETUP` identifies a newly created account whose user has not
 completed account/password setup. It cannot authenticate with a normal
-password or access protected application APIs. It may use only the future
-account-setup mechanism once that API is specified, and becomes `ACTIVE`
-only after successful account setup.
+password or access protected application APIs. It may use `POST /auth/setup`
+to complete initial setup, and becomes `ACTIVE` only after
+successful account setup.
+
+Reactivating an account disabled from `ACTIVE` restores `ACTIVE`. Reactivating
+an account disabled from `PENDING_SETUP` restores `PENDING_SETUP`; it remains
+unable to authenticate or access protected APIs until setup succeeds. Every
+successful status transition is audited. The transition event's
+`previousState.status` and `newState.status` record the status values needed
+to preserve this lifecycle; no additional User status is introduced.
+The setup credential is unusable while the User is `DISABLED`. Whether
+disabling a pending account also invalidates its still-unexpired setup
+credential, and whether reactivation therefore requires a newly issued
+credential, remains unresolved.
 
 `DISABLED` accounts cannot authenticate or access protected application
 APIs. A JWT does not override the persisted account status. Only
@@ -1725,11 +1762,11 @@ Quotation Revision?
 
 # 66. BUSINESS RULE STATUS
 
-**Current status:** Planning baseline, revised to v1.8.
+**Current status:** Planning baseline, revised to v1.9.
 
 This version separates membership, ownership, residence and governance
 eligibility; establishes the platform-wide technical scope of
-`SYSTEM_ADMIN`, specifies initial account setup credentials, permitted user
+`SYSTEM_ADMIN`, specifies the one-time account setup flow, permitted user
 profile/account-information updates and read access, and the AuditLog
 foundation; makes approval and meeting rules configurable/versioned;
 defines a concrete prototype governance baseline where the reviewed rules
