@@ -11,6 +11,7 @@
     "build": "npm run build --workspace=@nivaas/frontend && npm run build --workspace=@nivaas/backend",
     "typecheck": "npm run typecheck --workspace=@nivaas/frontend && npm run typecheck --workspace=@nivaas/backend",
     "test": "npm run test --workspace=@nivaas/frontend && npm run test --workspace=@nivaas/backend",
+    "test:integration": "npm run test:integration --workspace=@nivaas/backend",
     "test:e2e": "playwright test",
     "blockchain:compile": "npm run compile --workspace=@nivaas/blockchain",
     "dev:frontend": "npm run dev --workspace=@nivaas/frontend",

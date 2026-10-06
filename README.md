@@ -21,6 +21,7 @@ in `docs/`.
 - Node.js 22 or later
 - npm 10 or later
 - MongoDB is needed only when using the database connection foundation.
+- Docker Desktop is needed for the local transaction-capable MongoDB test replica set.
 
 ## Install and run
 
@@ -48,6 +49,22 @@ Playwright browser binaries may be installed separately with
 Copy `.env.example` to `.env` when configuring local services. Never commit
 environment files or secrets. Database and blockchain connection details are
 not needed to compile the scaffold.
+
+## Transaction integration tests
+
+The MongoDB integration-test setup uses a local single-node replica set named
+`rs0`. Install Docker Desktop, then start the database from the repository
+root:
+
+```sh
+docker compose up -d mongodb
+```
+
+Set `MONGODB_TEST_URI` from `.env.example` when running transaction-dependent
+integration tests. It points to the separate `nivaas_test` database and must
+not replace the normal application `MONGODB_URI`. The test helper fails
+clearly if the variable is missing, MongoDB is unavailable, or the connection
+does not report an `rs0` primary. Existing unit tests do not connect to MongoDB.
 
 ## Scope
 

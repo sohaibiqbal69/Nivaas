@@ -20,7 +20,7 @@ export const userSchema = new Schema(
     name: { type: String, required: true },
     email: { type: String, required: true },
     phone: { type: String },
-    passwordHash: { type: String, required: true, select: false },
+    passwordHash: { type: String, select: false },
     role: { type: String, enum: USER_ROLES, required: true },
     walletAddress: { type: String },
     status: { type: String, required: true },

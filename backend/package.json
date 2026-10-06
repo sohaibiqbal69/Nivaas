@@ -8,7 +8,8 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "start": "node dist/server.js",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run --exclude '**/integration/**' --passWithNoTests",
+    "test:integration": "vitest run tests/integration"
   },
   "dependencies": {
     "canonicalize": "5.1.0",
