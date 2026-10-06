@@ -7,7 +7,7 @@ import { Building, buildingSchema } from '../src/modules/property/models/Buildin
 import { Flat, flatSchema } from '../src/modules/property/models/Flat.js';
 import { Ownership, ownershipSchema } from '../src/modules/property/models/Ownership.js';
 import { Residence, residenceSchema } from '../src/modules/property/models/Residence.js';
-import { Membership, MEMBERSHIP_TYPES, membershipSchema } from '../src/modules/membership/models/Membership.js';
+import { Membership, MEMBERSHIP_STATUSES, MEMBERSHIP_TYPES, membershipSchema } from '../src/modules/membership/models/Membership.js';
 import { Committee, committeeSchema } from '../src/modules/committee/models/Committee.js';
 import { CommitteeMember, committeeMemberSchema } from '../src/modules/committee/models/CommitteeMember.js';
 
@@ -30,9 +30,16 @@ describe('Nivaas society data models', () => {
     const invalidUser = new User({ societyId, name: 'Member', email: 'member@example.test', passwordHash: 'hash', role: 'OWNER', status: 'ACTIVE' });
     await expect(invalidUser.validate()).rejects.toMatchObject({ errors: { role: expect.anything() } });
 
-    const validMembership = new Membership({ societyId, userId: new Types.ObjectId(), membershipType: 'JOINT', membershipStatus: 'ACTIVE' });
+    const validMembership = new Membership({
+      societyId,
+      userId: new Types.ObjectId(),
+      unitId: new Types.ObjectId(),
+      membershipType: 'JOINT',
+      membershipStatus: 'ACTIVE',
+    });
     await expect(validMembership.validate()).resolves.toBeUndefined();
     expect(MEMBERSHIP_TYPES).toEqual(['PRIMARY', 'JOINT', 'ASSOCIATE', 'PROVISIONAL']);
+    expect(MEMBERSHIP_STATUSES).toEqual(['ACTIVE', 'INACTIVE']);
   });
 
   it('allows a nullable society only for SYSTEM_ADMIN and validates the role/society invariant', async () => {
