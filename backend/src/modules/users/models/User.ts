@@ -8,6 +8,8 @@ export const USER_ROLES = [
   'RESIDENT',
 ] as const;
 
+export const USER_STATUSES = ['PENDING_SETUP', 'ACTIVE', 'DISABLED'] as const;
+
 export const userSchema = new Schema(
   {
     societyId: {
@@ -23,12 +25,12 @@ export const userSchema = new Schema(
     passwordHash: { type: String, select: false },
     role: { type: String, enum: USER_ROLES, required: true },
     walletAddress: { type: String },
-    status: { type: String, required: true },
+    status: { type: String, enum: USER_STATUSES, required: true },
   },
   { timestamps: true, collection: 'users' },
 );
 
-userSchema.index({ email: 1 });
+userSchema.index({ email: 1 }, { unique: true });
 userSchema.index({ societyId: 1 });
 
 export type UserRecord = InferSchemaType<typeof userSchema>;
