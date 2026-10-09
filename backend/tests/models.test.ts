@@ -10,6 +10,8 @@ import { Residence, residenceSchema } from '../src/modules/property/models/Resid
 import { Membership, MEMBERSHIP_STATUSES, MEMBERSHIP_TYPES, membershipSchema } from '../src/modules/membership/models/Membership.js';
 import { Committee, committeeSchema } from '../src/modules/committee/models/Committee.js';
 import { CommitteeMember, committeeMemberSchema } from '../src/modules/committee/models/CommitteeMember.js';
+import { Budget, budgetSchema } from '../src/modules/budget/models/Budget.js';
+import { BudgetCategory, budgetCategorySchema } from '../src/modules/budget/models/BudgetCategory.js';
 
 describe('Nivaas society data models', () => {
   it('requires the documented society identity and timestamps its records', async () => {
@@ -139,6 +141,33 @@ describe('Nivaas society data models', () => {
     expect(flatSchema.path('residentIds')).toBeUndefined();
     expect(flatSchema.path('buildingId')).toBeDefined();
     expect(flatSchema.path('societyId')).toBeDefined();
+  });
+
+  it('defines documented budget fields, statuses, references, and Decimal128 amounts', async () => {
+    const budget = new Budget({
+      societyId: new Types.ObjectId(),
+      financialYear: '2026-2027',
+      title: 'Annual Budget',
+      status: 'DRAFT',
+      totalAllocated: '100.25',
+      totalSpent: '20.10',
+      totalRemaining: '80.15',
+    });
+    await expect(budget.validate()).resolves.toBeUndefined();
+    expect(budgetSchema.path('societyId').options.ref).toBe('Society');
+    expect(budgetSchema.path('totalAllocated').instance).toBe('Decimal128');
+    expect(budgetSchema.path('status').enumValues).toEqual(['DRAFT', 'SUBMITTED', 'UNDER_REVIEW', 'APPROVED', 'REJECTED', 'CLOSED']);
+
+    const category = new BudgetCategory({
+      budgetId: budget._id,
+      name: 'Security',
+      allocatedAmount: '100.25',
+      spentAmount: '20.10',
+      remainingAmount: '80.15',
+    });
+    await expect(category.validate()).resolves.toBeUndefined();
+    expect(budgetCategorySchema.path('budgetId').options.ref).toBe('Budget');
+    expect(budgetCategorySchema.path('allocatedAmount').instance).toBe('Decimal128');
   });
 
   it('allows multiple ownership and residence records for the same flat', async () => {

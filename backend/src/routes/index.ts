@@ -7,6 +7,7 @@ import { createMembershipsRouter } from '../modules/membership/membership-routes
 import { createPropertyRouter } from '../modules/property/property-routes.js';
 import { createOwnershipResidenceRouter } from '../modules/property/ownership-residence-routes.js';
 import { createAuditRouter } from '../modules/audit/audit-routes.js';
+import { createBudgetsRouter } from '../modules/budget/budget-routes.js';
 
 export const apiRouter = Router();
 apiRouter.use('/health', healthRouter);
@@ -17,3 +18,4 @@ apiRouter.use('/memberships', createMembershipsRouter());
 apiRouter.use(createPropertyRouter());
 apiRouter.use(createOwnershipResidenceRouter());
 apiRouter.use(createAuditRouter());
+apiRouter.use(createBudgetsRouter());
