@@ -9,6 +9,7 @@ import { createOwnershipResidenceRouter } from '../modules/property/ownership-re
 import { createAuditRouter } from '../modules/audit/audit-routes.js';
 import { createBudgetsRouter } from '../modules/budget/budget-routes.js';
 import { createProjectsRouter } from '../modules/project/project-routes.js';
+import { createQuotationRouter } from '../modules/quotation/quotation-routes.js';
 
 export const apiRouter = Router();
 apiRouter.use('/health', healthRouter);
@@ -21,3 +22,4 @@ apiRouter.use(createOwnershipResidenceRouter());
 apiRouter.use(createAuditRouter());
 apiRouter.use(createBudgetsRouter());
 apiRouter.use(createProjectsRouter());
+apiRouter.use(createQuotationRouter());

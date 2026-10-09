@@ -13,6 +13,8 @@ import { CommitteeMember, committeeMemberSchema } from '../src/modules/committee
 import { Budget, budgetSchema } from '../src/modules/budget/models/Budget.js';
 import { BudgetCategory, budgetCategorySchema } from '../src/modules/budget/models/BudgetCategory.js';
 import { Project, projectSchema, PROJECT_STATUSES } from '../src/modules/project/models/Project.js';
+import { Quotation, quotationSchema, QUOTATION_STATUSES } from '../src/modules/quotation/models/Quotation.js';
+import { ChangeRequest, changeRequestSchema, CHANGE_REQUEST_STATUSES } from '../src/modules/quotation/models/ChangeRequest.js';
 
 describe('Nivaas society data models', () => {
   it('requires the documented society identity and timestamps its records', async () => {
@@ -181,6 +183,7 @@ describe('Nivaas society data models', () => {
       estimatedCost: '100.25',
       proposedBy: new Types.ObjectId(),
     });
+
     await expect(project.validate()).resolves.toBeUndefined();
     expect(projectSchema.path('societyId').options.ref).toBe('Society');
     expect(projectSchema.path('proposedBy').options.ref).toBe('User');
@@ -189,6 +192,34 @@ describe('Nivaas society data models', () => {
     expect(project.status).toBe('DRAFT');
     expect(PROJECT_STATUSES).toContain('APPROVED');
     expect(PROJECT_STATUSES).toContain('CANCELLED');
+  });
+
+  it('defines documented quotation and revision fields, statuses, and Decimal128 amounts', async () => {
+    const quotation = new Quotation({
+      projectId: new Types.ObjectId(),
+      vendorId: new Types.ObjectId(),
+      versionNumber: 1,
+      amount: '100.25',
+      description: 'Quote',
+    });
+    await expect(quotation.validate()).resolves.toBeUndefined();
+    expect(quotationSchema.path('projectId').options.ref).toBe('Project');
+    expect(quotationSchema.path('amount').instance).toBe('Decimal128');
+    expect(QUOTATION_STATUSES).toContain('SUPERSEDED');
+
+    const changeRequest = new ChangeRequest({
+      projectId: quotation.projectId,
+      quotationId: quotation._id,
+      originalAmount: '100',
+      additionalAmount: '10',
+      newAmount: '110',
+      reason: 'Additional work',
+      requestedBy: new Types.ObjectId(),
+    });
+    await expect(changeRequest.validate()).resolves.toBeUndefined();
+    expect(changeRequestSchema.path('quotationId').options.ref).toBe('Quotation');
+    expect(changeRequestSchema.path('newAmount').instance).toBe('Decimal128');
+    expect(CHANGE_REQUEST_STATUSES).toContain('REQUIRES_SGM');
   });
 
   it('allows multiple ownership and residence records for the same flat', async () => {
