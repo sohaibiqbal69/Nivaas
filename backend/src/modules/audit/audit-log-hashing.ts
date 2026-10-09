@@ -145,7 +145,10 @@ export function canonicalizeAuditLog(source: AuditLogSource): string {
 /** Calculates a version-1 Ethereum Keccak-256 AuditLog record hash. */
 export function hashAuditLog(source: AuditLogSource): string {
   const event = toPlainRecord(source);
-  if (event.hashVersion !== AUDIT_LOG_HASH_VERSION) {
+  const hashVersion = event.hashVersion instanceof mongo.BSON.Int32
+    ? event.hashVersion.value
+    : event.hashVersion;
+  if (hashVersion !== AUDIT_LOG_HASH_VERSION) {
     throw new RangeError(`Unsupported AuditLog hash version: ${String(event.hashVersion)}.`);
   }
 

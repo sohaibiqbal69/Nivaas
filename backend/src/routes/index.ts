@@ -6,6 +6,7 @@ import { createSocietiesRouter } from '../modules/society/society-routes.js';
 import { createMembershipsRouter } from '../modules/membership/membership-routes.js';
 import { createPropertyRouter } from '../modules/property/property-routes.js';
 import { createOwnershipResidenceRouter } from '../modules/property/ownership-residence-routes.js';
+import { createAuditRouter } from '../modules/audit/audit-routes.js';
 
 export const apiRouter = Router();
 apiRouter.use('/health', healthRouter);
@@ -15,3 +16,4 @@ apiRouter.use('/societies', createSocietiesRouter());
 apiRouter.use('/memberships', createMembershipsRouter());
 apiRouter.use(createPropertyRouter());
 apiRouter.use(createOwnershipResidenceRouter());
+apiRouter.use(createAuditRouter());
