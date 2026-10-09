@@ -8,6 +8,7 @@ import { createPropertyRouter } from '../modules/property/property-routes.js';
 import { createOwnershipResidenceRouter } from '../modules/property/ownership-residence-routes.js';
 import { createAuditRouter } from '../modules/audit/audit-routes.js';
 import { createBudgetsRouter } from '../modules/budget/budget-routes.js';
+import { createProjectsRouter } from '../modules/project/project-routes.js';
 
 export const apiRouter = Router();
 apiRouter.use('/health', healthRouter);
@@ -19,3 +20,4 @@ apiRouter.use(createPropertyRouter());
 apiRouter.use(createOwnershipResidenceRouter());
 apiRouter.use(createAuditRouter());
 apiRouter.use(createBudgetsRouter());
+apiRouter.use(createProjectsRouter());

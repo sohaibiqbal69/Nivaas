@@ -12,6 +12,7 @@ import { Committee, committeeSchema } from '../src/modules/committee/models/Comm
 import { CommitteeMember, committeeMemberSchema } from '../src/modules/committee/models/CommitteeMember.js';
 import { Budget, budgetSchema } from '../src/modules/budget/models/Budget.js';
 import { BudgetCategory, budgetCategorySchema } from '../src/modules/budget/models/BudgetCategory.js';
+import { Project, projectSchema, PROJECT_STATUSES } from '../src/modules/project/models/Project.js';
 
 describe('Nivaas society data models', () => {
   it('requires the documented society identity and timestamps its records', async () => {
@@ -153,6 +154,7 @@ describe('Nivaas society data models', () => {
       totalSpent: '20.10',
       totalRemaining: '80.15',
     });
+
     await expect(budget.validate()).resolves.toBeUndefined();
     expect(budgetSchema.path('societyId').options.ref).toBe('Society');
     expect(budgetSchema.path('totalAllocated').instance).toBe('Decimal128');
@@ -168,6 +170,25 @@ describe('Nivaas society data models', () => {
     await expect(category.validate()).resolves.toBeUndefined();
     expect(budgetCategorySchema.path('budgetId').options.ref).toBe('Budget');
     expect(budgetCategorySchema.path('allocatedAmount').instance).toBe('Decimal128');
+  });
+
+  it('defines documented project fields, statuses, references, and Decimal128 cost', async () => {
+    const project = new Project({
+      societyId: new Types.ObjectId(),
+      title: 'Repair',
+      description: 'Description',
+      category: 'Maintenance',
+      estimatedCost: '100.25',
+      proposedBy: new Types.ObjectId(),
+    });
+    await expect(project.validate()).resolves.toBeUndefined();
+    expect(projectSchema.path('societyId').options.ref).toBe('Society');
+    expect(projectSchema.path('proposedBy').options.ref).toBe('User');
+    expect(projectSchema.path('budgetId').options.ref).toBe('Budget');
+    expect(projectSchema.path('estimatedCost').instance).toBe('Decimal128');
+    expect(project.status).toBe('DRAFT');
+    expect(PROJECT_STATUSES).toContain('APPROVED');
+    expect(PROJECT_STATUSES).toContain('CANCELLED');
   });
 
   it('allows multiple ownership and residence records for the same flat', async () => {
