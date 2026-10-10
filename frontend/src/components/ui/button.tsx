@@ -1,6 +1,7 @@
 import { cva, type VariantProps } from 'class-variance-authority';
 import type { ButtonHTMLAttributes } from 'react';
 import { cn } from '@/lib/utils';
+import { pressFeedback } from '@/lib/motion';
 
 const buttonStyles = cva(
   'inline-flex min-h-11 items-center justify-center gap-2 rounded-md px-4 text-sm font-semibold transition-colors touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:pointer-events-none disabled:opacity-50 motion-reduce:transition-none',
@@ -19,6 +20,15 @@ const buttonStyles = cva(
 
 export type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & VariantProps<typeof buttonStyles>;
 
-export function Button({ className, variant, size, ...props }: ButtonProps) {
-  return <button className={cn(buttonStyles({ variant, size }), className)} {...props} />;
+export function Button({ className, variant, size, onPointerDown, ...props }: ButtonProps) {
+  return (
+    <button
+      className={cn(buttonStyles({ variant, size }), className)}
+      onPointerDown={(event) => {
+        pressFeedback(event.currentTarget);
+        onPointerDown?.(event);
+      }}
+      {...props}
+    />
+  );
 }

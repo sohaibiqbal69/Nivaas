@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { Menu, X } from 'lucide-react';
-import { Link, Outlet, useLocation } from 'react-router-dom';
+import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { navigationItems } from '@/routes/navigation';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { Brand } from './Brand';
 import { SidebarNavigation } from './SidebarNavigation';
+import { useAuth } from '@/contexts/AuthContext';
 
 function NavigationPanel({ onNavigate }: { onNavigate?: () => void }) {
   return (
@@ -17,6 +19,8 @@ function NavigationPanel({ onNavigate }: { onNavigate?: () => void }) {
 }
 
 export function AppShell() {
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
   const location = useLocation();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false);
@@ -73,16 +77,25 @@ export function AppShell() {
                 <Menu aria-hidden="true" size={20} />
               </Button>
               <div className="min-w-0">
-                <p className="font-mono text-[0.65rem] uppercase tracking-[0.12em] text-muted-foreground">Society workspace</p>
+                <div className="flex items-center gap-2">
+                  <p className="font-mono text-[0.65rem] uppercase tracking-[0.12em] text-muted-foreground">Society workspace</p>
+                  <Badge variant="neutral" className="hidden py-1 text-[0.6rem] sm:inline-flex">{user?.role === 'SYSTEM_ADMIN' ? 'Platform scope' : 'Society linked'}</Badge>
+                </div>
                 <h1 className="truncate font-headline text-lg font-bold sm:text-xl">{title}</h1>
               </div>
             </div>
-            <span className="shrink-0 text-xs text-muted-foreground">Frontend foundation</span>
+            <div className="flex items-center gap-3">
+              <div className="hidden text-right sm:block">
+                <p className="text-sm font-semibold">{user?.name}</p>
+                <p className="font-mono text-[0.6rem] uppercase tracking-[0.1em] text-muted-foreground">{user?.role}</p>
+              </div>
+              <Button variant="outline" size="default" onClick={() => { logout(); navigate('/login', { replace: true }); }}>Sign out</Button>
+            </div>
           </div>
         </header>
 
         <main id="main-content" tabIndex={-1} className="mx-auto w-full max-w-7xl px-4 py-7 outline-none sm:px-6 sm:py-9 lg:px-8">
-          <Outlet />
+          <div key={location.pathname} className="page-transition"><Outlet /></div>
           <footer className="mt-12 border-t border-border/70 pt-5 text-xs leading-5 text-muted-foreground">
             <p>Nivaas presents society information. Governance and application decisions belong to the system services defined for Nivaas.</p>
             <p className="mt-1"><Link to="/blockchain" className="font-semibold text-info underline decoration-info/40 underline-offset-4 hover:decoration-info focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">About integrity proofs</Link></p>

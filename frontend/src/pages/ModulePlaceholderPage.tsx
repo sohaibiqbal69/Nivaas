@@ -2,6 +2,8 @@ import { CircleDashed } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { PageHeader } from '@/components/layout/PageHeader';
+import { usePageMotion } from '@/hooks/usePageMotion';
 
 type ModulePlaceholderPageProps = {
   title: string;
@@ -9,13 +11,10 @@ type ModulePlaceholderPageProps = {
 };
 
 export function ModulePlaceholderPage({ title, description }: ModulePlaceholderPageProps) {
+  const pageRef = usePageMotion<HTMLDivElement>();
   return (
-    <div className="max-w-3xl space-y-6">
-      <div>
-        <p className="font-mono text-[0.65rem] uppercase tracking-[0.12em] text-muted-foreground">Nivaas application area</p>
-        <h2 className="mt-2 font-headline text-3xl font-bold tracking-tight">{title}</h2>
-        <p className="mt-3 max-w-2xl leading-7 text-muted-foreground">{description}</p>
-      </div>
+    <div ref={pageRef} className="max-w-3xl space-y-6">
+      <PageHeader eyebrow="Nivaas application area" title={title} description={description} />
       <Card>
         <CardHeader>
           <Badge variant="neutral" className="w-fit"><CircleDashed aria-hidden="true" size={14} />Not connected</Badge>
