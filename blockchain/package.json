@@ -3,7 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "compile": "node scripts/compile.cjs compile"
+    "compile": "node scripts/compile.cjs compile",
+    "test": "node scripts/compile.cjs test"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-ethers": "^3.1.0",
