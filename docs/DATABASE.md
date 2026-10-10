@@ -616,6 +616,9 @@ owned.
     createdAt
     updatedAt
 
+`currentQuotationId` is maintained only by the transactional quotation
+selection transition. Generic project edits must not accept this field.
+
 ## Status
 
     DRAFT
@@ -777,6 +780,11 @@ Example:
 
 Q001 remains in the database.
 
+Selection marks one quotation `SELECTED`, supersedes the previously
+selected quotation when present, and updates the owning project's
+`currentQuotationId` atomically. Selection does not represent project
+approval.
+
 ------------------------------------------------------------------------
 
 # 23. CHANGE REQUEST
@@ -803,6 +811,11 @@ Q001 remains in the database.
     resultingQuotationId
     createdAt
     updatedAt
+
+When a submitted change request belongs to the currently selected
+quotation, its persisted `newAmount` is evaluated by the Approval Engine
+and the project moves to `RE_APPROVAL` in the same transaction. The
+resulting quotation version is created only by a future approved workflow.
 
 ## Status
 

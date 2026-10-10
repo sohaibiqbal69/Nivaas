@@ -11,6 +11,8 @@ import { issueAccessToken } from '../../src/modules/auth/jwt.js';
 import { AuditLog } from '../../src/modules/audit/models/AuditLog.js';
 import { Project } from '../../src/modules/project/models/Project.js';
 import { Society } from '../../src/modules/society/models/Society.js';
+import { SocietyRuleVersion } from '../../src/modules/society/models/SocietyRuleVersion.js';
+import { ApprovalDecision } from '../../src/modules/approval/models/ApprovalDecision.js';
 import { User } from '../../src/modules/users/models/User.js';
 import {
   clearIntegrationTestDatabase,
@@ -24,6 +26,7 @@ const societyB = new Types.ObjectId();
 const managerA = new Types.ObjectId();
 const managerB = new Types.ObjectId();
 const projectId = new Types.ObjectId();
+const ruleA = new Types.ObjectId();
 
 function app() {
   const application = express();
@@ -51,9 +54,14 @@ describe('Quotation MongoDB integration', () => {
   beforeEach(async () => {
     await clearIntegrationTestDatabase();
     await Society.create([
-      { _id: societyA, name: 'Society A', status: 'ACTIVE' },
+      { _id: societyA, name: 'Society A', status: 'ACTIVE', activeRuleVersionId: ruleA },
       { _id: societyB, name: 'Society B', status: 'ACTIVE' },
     ]);
+    await SocietyRuleVersion.create({
+      _id: ruleA, societyId: societyA, versionNumber: 1, status: 'ACTIVE',
+      effectiveFrom: new Date(Date.now() - 1000), createdBy: managerA,
+      approvalPolicy: { threshold: '100000' },
+    });
     await User.create([
       { _id: managerA, name: 'Manager A', email: `${managerA}@test`, role: 'SOCIETY_MANAGER', status: 'ACTIVE', societyId: societyA },
       { _id: managerB, name: 'Manager B', email: `${managerB}@test`, role: 'SOCIETY_MANAGER', status: 'ACTIVE', societyId: societyB },
@@ -81,6 +89,13 @@ describe('Quotation MongoDB integration', () => {
     });
     expect(update.status).toBe(200);
 
+    const selection = await request(application, `/api/quotations/${quotation._id}/select`, managerA, {
+      method: 'POST',
+    });
+    expect(selection.status).toBe(200);
+    expect((await selection.json()).data).toMatchObject({ status: 'SELECTED' });
+    expect((await Project.findById(projectId).lean())?.currentQuotationId?.toString()).toBe(quotation._id);
+
     const revision = await request(application, `/api/quotations/${quotation._id}/change-requests`, managerA, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ additionalAmount: '25.50', reason: 'Additional materials' }),
@@ -89,9 +104,30 @@ describe('Quotation MongoDB integration', () => {
     expect((await revision.json()).data).toMatchObject({
       originalAmount: '125.5', additionalAmount: '25.5', newAmount: '151', status: 'DRAFT',
     });
+    const submitted = await request(application, `/api/change-requests/${(await ChangeRequest.findOne({ quotationId: quotation._id }))?._id}/submit`, managerA, {
+      method: 'POST',
+    });
+    expect(submitted.status).toBe(200);
+    expect((await Project.findById(projectId).lean())?.status).toBe('RE_APPROVAL');
+    expect((await ApprovalDecision.findOne({ projectId }).lean())?.evaluatedAmount.toString()).toBe('151');
     expect(await Quotation.countDocuments({ projectId })).toBe(1);
     expect(await ChangeRequest.countDocuments({ quotationId: quotation._id })).toBe(1);
-    expect(await AuditLog.countDocuments({ societyId: societyA })).toBe(3);
+    expect(await AuditLog.countDocuments({ societyId: societyA })).toBe(7);
+
+    const replacement = await Quotation.create({
+      projectId,
+      vendorId: new Types.ObjectId(),
+      versionNumber: 2,
+      amount: '200',
+      description: 'Replacement quote',
+      status: 'SUBMITTED',
+      previousQuotationId: quotation._id,
+    });
+    const switched = await request(application, `/api/quotations/${replacement._id}/select`, managerA, { method: 'POST' });
+    expect(switched.status).toBe(200);
+    expect((await Project.findById(projectId).lean())?.currentQuotationId?.toString()).toBe(replacement._id.toString());
+    expect((await ApprovalDecision.findOne({ projectId, changeRequestId: { $exists: true } }).lean())?.status).toBe('INVALIDATED');
+    expect(await ApprovalDecision.findOne({ projectId, quotationVersionId: replacement._id, status: 'RE_EVALUATED' }).lean()).toBeTruthy();
   });
 
   it('isolates societies, rejects invalid relationships and protects non-draft quotations', async () => {

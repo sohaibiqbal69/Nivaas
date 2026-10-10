@@ -329,6 +329,22 @@ specified system.
 member merely because its holder administers Nivaas. `User.societyId` is
 nullable only for `SYSTEM_ADMIN` and required for all society-scoped roles.
 
+## 7. Approval Engine Foundation
+
+The initial approval policy is stored in each society's immutable
+`SocietyRuleVersion` configuration. Its approval threshold is an exact
+decimal string and defaults to `100000` when an initial rule version omits
+the policy value. Approval evaluations create immutable `ApprovalDecision`
+snapshots containing the rule version, threshold, evaluated amount, route
+and decision context.
+
+The authority allowed to create or activate a new society rule version
+remains unresolved. Therefore, this checkpoint exposes rule retrieval and
+approval evaluation only; it does not grant a Society Manager or
+`SYSTEM_ADMIN` an API to change governance rules. Historical rule versions
+remain read-only configuration records, and approval evaluation fails
+explicitly when a society has no valid active rule version.
+
 Cross-society access is a separate platform-administration capability and
 must be explicitly permitted by the relevant API. Generic same-society
 authorization must not contain a hidden `SYSTEM_ADMIN` bypass.
@@ -339,6 +355,24 @@ authority. It does not permit bypassing governance, changing votes,
 fabricating approvals, bypassing required meetings/SGM processes, altering
 completed governance results, rewriting historical payments, or modifying
 other protected governance history.
+
+New societies are provisioned with exactly one active version (version 1)
+using the configurable prototype threshold of `100000`. Society creation,
+rule creation, and the `Society.activeRuleVersionId` reference are written
+in one MongoDB transaction. This is initial platform provisioning only; it
+does not resolve or grant authority to create or activate later governance
+versions. A failed provisioning transaction creates neither the society nor
+its initial rule.
+
+Quotation selection is a separate transactional transition. It derives the
+project and society from persisted relationships, sets
+`Project.currentQuotationId`, marks the selected quotation `SELECTED`, and
+supersedes the previous selected quotation without changing project approval
+to approved. Submitting a change request for the currently selected
+quotation atomically records the request and evaluates its persisted
+`newAmount`; the project enters `RE_APPROVAL`. Final approval and resulting
+quotation-version acceptance remain unavailable until their governing
+authority is specified.
 
 ## 7. User Creation and Initial Credential
 
@@ -587,4 +621,3 @@ This implementation requirement does not make `SYSTEM_ADMIN` a society
 member or grant ownership, residence, membership, committee membership,
 governance eligibility, or voting rights. It does not create a synthetic
 society or society membership for a platform administrator.
-

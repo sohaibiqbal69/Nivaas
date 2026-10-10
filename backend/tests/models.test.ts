@@ -15,6 +15,7 @@ import { BudgetCategory, budgetCategorySchema } from '../src/modules/budget/mode
 import { Project, projectSchema, PROJECT_STATUSES } from '../src/modules/project/models/Project.js';
 import { Quotation, quotationSchema, QUOTATION_STATUSES } from '../src/modules/quotation/models/Quotation.js';
 import { ChangeRequest, changeRequestSchema, CHANGE_REQUEST_STATUSES } from '../src/modules/quotation/models/ChangeRequest.js';
+import { ApprovalDecision, approvalDecisionSchema, APPROVAL_TYPES } from '../src/modules/approval/models/ApprovalDecision.js';
 
 describe('Nivaas society data models', () => {
   it('requires the documented society identity and timestamps its records', async () => {
@@ -118,7 +119,7 @@ describe('Nivaas society data models', () => {
       status: 'DRAFT',
       effectiveFrom: new Date(),
       createdBy: new Types.ObjectId(),
-      approvalPolicy: { configuredPolicy: true },
+      approvalPolicy: { configuredPolicy: true, threshold: '100000' },
       majorityRules: {},
       quorumRules: {},
       noticeRules: {},
@@ -129,7 +130,7 @@ describe('Nivaas society data models', () => {
       completionRules: {},
     });
 
-    expect(version.approvalPolicy).toEqual({ configuredPolicy: true });
+    expect(version.approvalPolicy).toEqual({ configuredPolicy: true, threshold: '100000' });
     expect(societyRuleVersionSchema.path('majorityRules').instance).toBe('Mixed');
     const indexes = societyRuleVersionSchema.indexes();
     const versionNumberIndex = indexes.find(([keys]) => 'versionNumber' in keys);
@@ -202,6 +203,7 @@ describe('Nivaas society data models', () => {
       amount: '100.25',
       description: 'Quote',
     });
+
     await expect(quotation.validate()).resolves.toBeUndefined();
     expect(quotationSchema.path('projectId').options.ref).toBe('Project');
     expect(quotationSchema.path('amount').instance).toBe('Decimal128');
@@ -220,6 +222,25 @@ describe('Nivaas society data models', () => {
     expect(changeRequestSchema.path('quotationId').options.ref).toBe('Quotation');
     expect(changeRequestSchema.path('newAmount').instance).toBe('Decimal128');
     expect(CHANGE_REQUEST_STATUSES).toContain('REQUIRES_SGM');
+  });
+
+  it('defines approval decisions with immutable rule snapshots and exact amounts', async () => {
+    const decision = new ApprovalDecision({
+      societyId: new Types.ObjectId(),
+      projectId: new Types.ObjectId(),
+      ruleVersionId: new Types.ObjectId(),
+      evaluatedAmount: '100000',
+      requiredThreshold: '100000',
+      approvalType: 'COMMITTEE_APPROVAL',
+      requiredDecisionBody: 'COMMITTEE',
+      reason: 'Threshold evaluation',
+      evaluatedBy: new Types.ObjectId(),
+      ruleSnapshot: { versionNumber: 1, threshold: '100000' },
+    });
+    await expect(decision.validate()).resolves.toBeUndefined();
+    expect(approvalDecisionSchema.path('evaluatedAmount').instance).toBe('Decimal128');
+    expect(approvalDecisionSchema.path('ruleVersionId').options.immutable).toBe(true);
+    expect(APPROVAL_TYPES).toContain('SGM_REQUIRED');
   });
 
   it('allows multiple ownership and residence records for the same flat', async () => {

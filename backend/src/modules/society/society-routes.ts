@@ -1,10 +1,11 @@
 import { Router, type NextFunction, type Request, type Response } from 'express';
-import { Types } from 'mongoose';
+import mongoose, { Types } from 'mongoose';
 import { ApiError } from '../../lib/api-error.js';
 import { loadCurrentUser } from '../../middleware/load-current-user.js';
 import { requireRoles } from '../../middleware/require-roles.js';
 import { authenticate } from '../auth/authentication-middleware.js';
 import { Society } from './models/Society.js';
+import { SocietyRuleVersion, DEFAULT_APPROVAL_THRESHOLD } from './models/SocietyRuleVersion.js';
 
 const SOCIETY_RESPONSE_FIELDS = [
   '_id',
@@ -55,6 +56,7 @@ export type SocietyRepository = {
   create(data: SocietyWriteData): Promise<SocietyRecord>;
   update(societyId: string, data: Partial<Record<EditableSocietyField, string | Date>>): Promise<SocietyRecord | null>;
   updateStatus(societyId: string, status: 'ACTIVE' | 'DISABLED'): Promise<SocietyRecord | null>;
+  createWithInitialRule?(data: SocietyWriteData, createdBy: string): Promise<SocietyRecord>;
 };
 
 const societyRepository: SocietyRepository = {
@@ -85,6 +87,30 @@ const societyRepository: SocietyRepository = {
       .lean()
       .exec() as unknown as Promise<SocietyRecord | null>;
   },
+  async createWithInitialRule(data, createdBy) {
+    const session = await mongoose.startSession();
+    try {
+      let created: SocietyRecord | null = null;
+      await session.withTransaction(async () => {
+        const [society] = await Society.create([{ ...data, activeRuleVersionId: new Types.ObjectId(), configurationVersion: 1 }], { session });
+        await SocietyRuleVersion.create([{
+          _id: society.activeRuleVersionId,
+          societyId: society._id,
+          versionNumber: 1,
+          status: 'ACTIVE',
+          effectiveFrom: new Date(),
+          createdBy,
+          approvalPolicy: { threshold: DEFAULT_APPROVAL_THRESHOLD },
+        }], { session });
+        created = await Society.findById(society._id)
+          .select(SOCIETY_RESPONSE_FIELDS.join(' ')).session(session).lean().exec() as unknown as SocietyRecord;
+      });
+      if (!created) throw new Error('Society creation did not return a persisted record.');
+      return created;
+    } finally {
+      await session.endSession();
+    }
+  },
 };
 
 export function serializeSociety(society: SocietyRecord): Record<string, unknown> {
@@ -114,6 +140,12 @@ export function createSocietiesRouter(
   router.post('/', ...adminOnly, async (request: Request, response: Response, next: NextFunction) => {
     try {
       const data = validateSocietyRequest(request.body, false);
+      const user = request.currentUser;
+      if (repository.createWithInitialRule && user) {
+        const society = await repository.createWithInitialRule({ ...data, status: 'ACTIVE' }, user.userId);
+        response.status(201).json({ success: true, data: serializeSociety(society) });
+        return;
+      }
       const society = await repository.create({ ...data, status: 'ACTIVE' });
       response.status(201).json({ success: true, data: serializeSociety(society) });
     } catch (error) {

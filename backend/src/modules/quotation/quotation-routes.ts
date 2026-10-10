@@ -5,6 +5,7 @@ import { loadCurrentUser, type CurrentUserContext } from '../../middleware/load-
 import { requireRoles } from '../../middleware/require-roles.js';
 import { authenticate } from '../auth/authentication-middleware.js';
 import { AuditLog } from '../audit/models/AuditLog.js';
+import { ApprovalDecision } from '../approval/models/ApprovalDecision.js';
 import { Project } from '../project/models/Project.js';
 import { ChangeRequest } from './models/ChangeRequest.js';
 import { Quotation } from './models/Quotation.js';
@@ -110,8 +111,109 @@ export function createQuotationRouter(
           await writeAudit('QUOTATION_CREATED', project, quotation, user.userId, {}, quotationState(quotation), session);
           created = quotation.toObject() as unknown as QuotationRecord;
         });
+
         if (!created) throw new Error('Quotation creation did not return a persisted record.');
         response.status(201).json({ success: true, data: serializeQuotation(created) });
+      } finally {
+        await session.endSession();
+      }
+    } catch (error) {
+      next(normalizeError(error));
+    }
+  });
+
+  router.post('/quotations/:id/select', ...authorized, async (request, response, next) => {
+    try {
+      const user = currentUser(request);
+      const quotation = await findQuotation(request.params.id, user);
+      if (!quotation) throw notFound();
+      if (!['DRAFT', 'SUBMITTED', 'UNDER_REVIEW'].includes(quotation.status)) {
+        throw validation('Only an active quotation can be selected.');
+      }
+      const session = await mongoose.startSession();
+      try {
+        let selected: QuotationRecord | null = null;
+        await session.withTransaction(async () => {
+          const project = await findProject(quotation.projectId.toString(), user, session);
+          if (!project) throw notFound();
+          const current = await Quotation.findOne({ _id: quotation._id, projectId: project._id })
+            .select(quotationFields).session(session).lean().exec() as unknown as QuotationRecord | null;
+          if (!current || !['DRAFT', 'SUBMITTED', 'UNDER_REVIEW'].includes(current.status)) {
+            throw validation('Only an active quotation can be selected.');
+          }
+          const existingDecisions = await ApprovalDecision.find({
+            projectId: project._id,
+            status: { $ne: 'INVALIDATED' },
+          }).sort({ createdAt: -1 }).session(session).lean().exec();
+          const existingDecision = existingDecisions[0];
+          const previous = project.currentQuotationId
+            ? await Quotation.findOneAndUpdate(
+              { _id: project.currentQuotationId, projectId: project._id, status: 'SELECTED' },
+              { status: 'SUPERSEDED', supersededAt: new Date() },
+              { new: true, session },
+            ).select(quotationFields).lean().exec() as unknown as QuotationRecord | null
+            : null;
+          const updatedProject = await Project.findOneAndUpdate(
+            { _id: project._id, status: project.status, currentQuotationId: project.currentQuotationId ?? null },
+            existingDecision
+              ? {
+                currentQuotationId: current._id,
+                status: 'RE_APPROVAL',
+                approvalStatus: 'REQUIRED',
+              }
+              : { currentQuotationId: current._id },
+            { new: true, runValidators: true, session },
+          ).select('_id societyId status currentQuotationId').lean().exec() as unknown as {
+            status: string; currentQuotationId?: { toString(): string };
+          } | null;
+          if (!updatedProject) throw new ApiError(409, 'QUOTATION_SELECTION_CONFLICT', 'The project changed before quotation selection completed.');
+          const result = await Quotation.findOneAndUpdate(
+            { _id: current._id, projectId: project._id, status: current.status },
+            { status: 'SELECTED' },
+            { new: true, runValidators: true, session },
+          ).select(quotationFields).lean().exec();
+          if (!result) throw new ApiError(409, 'QUOTATION_SELECTION_CONFLICT', 'The quotation changed before selection completed.');
+          selected = result as unknown as QuotationRecord;
+          if (existingDecision) {
+            await ApprovalDecision.updateMany(
+              { projectId: project._id, status: { $ne: 'INVALIDATED' } },
+              { $set: { status: 'INVALIDATED' } },
+              { session },
+            ).exec();
+            for (const decision of existingDecisions as unknown as Array<{
+              _id: { toString(): string };
+              status: string;
+              ruleVersionId: { toString(): string };
+            }>) {
+              await writeApprovalInvalidationAudit(decision, project, user.userId, session);
+            }
+            const { evaluateProjectApproval } = await import('../approval/approval-engine.js');
+            const evaluation = await evaluateProjectApproval(
+              project._id.toString(), user.userId, session, undefined, true,
+            );
+            await Project.updateOne(
+              { _id: project._id, status: 'RE_APPROVAL' },
+              {
+                $set: {
+                  approvalType: evaluation.approvalType,
+                  approvalStatus: 'REQUIRED',
+                  activeRuleVersionId: new Types.ObjectId(evaluation.ruleVersionId),
+                },
+              },
+              { session },
+            ).exec();
+            await writeApprovalAudit(evaluation, project, user.userId, session);
+          }
+          await writeAudit('QUOTATION_SELECTED', project, selected, user.userId, quotationState(current), quotationState(selected), session);
+          await writeProjectAudit('PROJECT_QUOTATION_SELECTED', project, user.userId, {
+            status: project.status, currentQuotationId: project.currentQuotationId,
+          }, {
+            status: updatedProject.status, currentQuotationId: updatedProject.currentQuotationId,
+            previousQuotationId: previous?._id,
+          }, session);
+        });
+        if (!selected) throw notFound();
+        response.json({ success: true, data: serializeQuotation(selected) });
       } finally {
         await session.endSession();
       }
@@ -241,7 +343,35 @@ export function createQuotationRouter(
           if (!result) return;
           updated = result as unknown as ChangeRequestRecord;
           const project = await findProject(record.projectId.toString(), user, session);
-          if (project) await writeAudit('QUOTATION_CHANGE_REQUEST_SUBMITTED', project, updated, user.userId, changeRequestState(currentRecord), changeRequestState(updated), session);
+          if (!project) throw notFound();
+          if (!project.currentQuotationId || project.currentQuotationId.toString() !== record.quotationId.toString()) {
+            throw validation('Only the currently selected quotation can be submitted for revision.');
+          }
+          const selectedQuotation = await Quotation.exists({
+            _id: record.quotationId,
+            projectId: project._id,
+            status: 'SELECTED',
+          }).session(session);
+          if (!selectedQuotation) throw validation('Only the currently selected quotation can be submitted for revision.');
+          const { evaluateProjectApproval } = await import('../approval/approval-engine.js');
+          const evaluation = await evaluateProjectApproval(
+            record.projectId.toString(), user.userId, session, record._id.toString(), true,
+          );
+          const projectUpdate = await Project.findOneAndUpdate(
+            { _id: project._id, status: project.status },
+            {
+              status: 'RE_APPROVAL',
+              approvalType: evaluation.approvalType,
+              approvalStatus: 'REQUIRED',
+              activeRuleVersionId: new Types.ObjectId(evaluation.ruleVersionId),
+            },
+            { new: true, runValidators: true, session },
+          ).select('_id societyId status approvalType approvalStatus activeRuleVersionId').lean().exec();
+          if (!projectUpdate) throw new ApiError(409, 'APPROVAL_STATE_CHANGED', 'The project changed before revision submission completed.');
+          await writeAudit('QUOTATION_CHANGE_REQUEST_SUBMITTED', project, updated, user.userId, changeRequestState(currentRecord), {
+            ...changeRequestState(updated), approvalType: evaluation.approvalType, evaluatedAmount: evaluation.evaluatedAmount,
+          }, session);
+          await writeApprovalAudit(evaluation, project, user.userId, session);
         });
         if (!updated) throw notFound();
         response.json({ success: true, data: serializeChangeRequest(updated) });
@@ -256,11 +386,12 @@ export function createQuotationRouter(
   return router;
 }
 
-type ProjectReference = { _id: { toString(): string }; societyId: { toString(): string }; status?: string };
+type ProjectReference = { _id: { toString(): string }; societyId: { toString(): string }; status?: string; currentQuotationId?: { toString(): string } };
 async function findProject(id: unknown, user: CurrentUserContext, session?: mongoose.ClientSession): Promise<ProjectReference | null> {
   const query: Record<string, unknown> = { _id: objectId(id, 'projectId') };
   if (user.role !== 'SYSTEM_ADMIN') query.societyId = user.societyId;
-  return Project.findOne(query).select('_id societyId status').session(session ?? null).lean().exec() as unknown as Promise<ProjectReference | null>;
+  return Project.findOne(query).select('_id societyId status currentQuotationId')
+    .session(session ?? null).lean().exec() as unknown as Promise<ProjectReference | null>;
 }
 async function findQuotation(id: unknown, user: CurrentUserContext): Promise<QuotationRecord | null> {
   const quotation = await Quotation.findById(objectId(id, 'quotationId')).select(quotationFields).lean().exec() as unknown as QuotationRecord | null;
@@ -317,6 +448,45 @@ function changeRequestState(record: { originalAmount: { toString(): string }; ad
 }
 async function writeAudit(action: string, project: ProjectReference, entity: { _id: { toString(): string } }, actorId: string, previousState: Record<string, unknown>, newState: Record<string, unknown>, session: mongoose.ClientSession): Promise<void> {
   await new AuditLog({ societyId: project.societyId, actorId, action, entityType: action.startsWith('QUOTATION_CHANGE') ? 'ChangeRequest' : 'Quotation', entityId: entity._id, previousState, newState }).save({ session });
+}
+async function writeProjectAudit(action: string, project: ProjectReference, actorId: string, previousState: Record<string, unknown>, newState: Record<string, unknown>, session: mongoose.ClientSession): Promise<void> {
+  await new AuditLog({
+    societyId: project.societyId,
+    actorId,
+    action,
+    entityType: 'Project',
+    entityId: project._id,
+    previousState,
+    newState,
+  }).save({ session });
+}
+async function writeApprovalAudit(evaluation: { decision: { _id: { toString(): string } }; approvalType: string; evaluatedAmount: string; threshold: string; ruleVersionId: string }, project: ProjectReference, actorId: string, session: mongoose.ClientSession): Promise<void> {
+  await new AuditLog({
+    societyId: project.societyId,
+    actorId,
+    action: 'APPROVAL_EVALUATED',
+    entityType: 'ApprovalDecision',
+    entityId: evaluation.decision._id,
+    ruleVersionId: evaluation.ruleVersionId,
+    previousState: {},
+    newState: {
+      approvalType: evaluation.approvalType,
+      evaluatedAmount: evaluation.evaluatedAmount,
+      threshold: evaluation.threshold,
+    },
+  }).save({ session });
+}
+async function writeApprovalInvalidationAudit(decision: { _id: { toString(): string }; status: string; ruleVersionId: { toString(): string } }, project: ProjectReference, actorId: string, session: mongoose.ClientSession): Promise<void> {
+  await new AuditLog({
+    societyId: project.societyId,
+    actorId,
+    action: 'APPROVAL_INVALIDATED',
+    entityType: 'ApprovalDecision',
+    entityId: decision._id,
+    ruleVersionId: decision.ruleVersionId,
+    previousState: { status: decision.status },
+    newState: { status: 'INVALIDATED' },
+  }).save({ session });
 }
 function monetary(value: unknown, field: string, positive = false): string {
   if (typeof value !== 'string' && typeof value !== 'number') throw validation(`${field} must be a ${positive ? 'positive' : 'non-negative'} decimal amount.`);

@@ -851,7 +851,10 @@ Create quotation.
 
 ## POST `/quotations/:id/select`
 
-Select quotation where permitted.
+Select quotation where permitted. The backend verifies the persisted
+quotation-to-project relationship, sets `Project.currentQuotationId`, marks
+the quotation `SELECTED`, and supersedes a prior selected quotation. This
+does not approve the project.
 
 ------------------------------------------------------------------------
 
@@ -880,6 +883,14 @@ The backend calculates:
 
 The frontend must not be trusted to provide the authoritative new
 amount.
+
+## POST `/change-requests/:id/submit`
+
+Submit a change request for the currently selected quotation. The operation
+stores the submitted state and runs the Approval Engine against the
+persisted `newAmount` in one transaction. The project enters `RE_APPROVAL`;
+this endpoint does not accept the change or create a resulting quotation
+version.
 
 ------------------------------------------------------------------------
 
@@ -1805,6 +1816,12 @@ authenticated user and intended operation and must reject conflicting reuse.
 
 A network timeout must not cause the client to accidentally create two
 logical votes or two payment records.
+
+Society creation currently has no idempotency-key contract. If a client
+loses the response and retries `POST /societies`, the retry is treated as a
+new creation and may create another society with its own atomically
+provisioned initial rule. Clients must not assume timeout retries are
+deduplicated for this endpoint.
 
 ------------------------------------------------------------------------
 

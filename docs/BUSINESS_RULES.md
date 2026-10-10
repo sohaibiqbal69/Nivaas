@@ -834,6 +834,18 @@ RE_APPROVAL
 Required approval process
 ```
 
+Submitting a change request for the currently selected quotation creates a
+new approval evaluation for the persisted new total and moves the project
+to `RE_APPROVAL` in the same transaction. Earlier approval evaluations and
+their rule snapshots remain historical records and are not overwritten.
+Selecting a quotation only establishes the current quotation relationship;
+it does not establish final project approval.
+
+If a different quotation is selected after an approval evaluation exists,
+the prior evaluations remain historical but are marked `INVALIDATED`, and
+the newly selected quotation is evaluated again in the same transaction.
+The project enters `RE_APPROVAL`; selection never grants final approval.
+
 For the example above:
 
 ```
