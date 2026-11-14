@@ -102,6 +102,9 @@ const propertyRepository: PropertyRepository = {
       await session.withTransaction(async () => {
         const building = await ensureBuildingSociety(data.buildingId, data.societyId, session);
         if (!building) throw new ApiError(400, 'VALIDATION_ERROR', 'The building does not exist.');
+        if (await Flat.exists({ societyId: data.societyId, buildingId: data.buildingId, flatNumber: data.flatNumber }).session(session)) {
+          throw new ApiError(409, 'FLAT_ALREADY_EXISTS', 'A flat with this number already exists in the selected building. Select the existing flat instead.');
+        }
         const [flat] = await Flat.create([data], { session });
         await writeAudit('FLAT_CREATED', actorId, flat._id.toString(), data.societyId, {}, {
           buildingId: data.buildingId, flatNumber: data.flatNumber, status: data.status,
@@ -158,25 +161,28 @@ export function createPropertyRouter(
 ): Router {
   const router = Router();
   const adminOnly = [authenticateRequest, loadAuthenticatedUser, requireRoles('SYSTEM_ADMIN')] as const;
+  const adminOrManager = [authenticateRequest, loadAuthenticatedUser, requireRoles('SYSTEM_ADMIN', 'SOCIETY_MANAGER')] as const;
 
   router.post('/buildings', ...adminOnly, async (request, response, next) => {
     try {
       const building = await repository.createBuilding(validateBuildingCreate(request.body), currentUser(request).userId);
       response.status(201).json({ success: true, data: serializeBuilding(building) });
     } catch (error) {
-      next(normalizePropertyError(error));
+      next(normalizePropertyError(error, request.body));
     }
   });
-  router.get('/buildings', ...adminOnly, async (request, response, next) => {
+  router.get('/buildings', ...adminOrManager, async (request, response, next) => {
     try {
-      const buildings = await repository.findBuildings(validateFilters(request.query, 'building'));
+      const filters = scopeSocietyFilter(validateFilters(request.query, 'building'), request);
+      const buildings = await repository.findBuildings(filters);
       response.status(200).json({ success: true, data: buildings.map(serializeBuilding) });
     } catch (error) { next(error); }
   });
-  router.get('/buildings/:id', ...adminOnly, async (request, response, next) => {
+  router.get('/buildings/:id', ...adminOrManager, async (request, response, next) => {
     try {
       const building = await repository.findBuildingById(parseId(request.params.id));
       if (!building) throw notFound();
+      assertSocietyScope(request, building.societyId);
       response.status(200).json({ success: true, data: serializeBuilding(building) });
     } catch (error) { next(error); }
   });
@@ -193,25 +199,28 @@ export function createPropertyRouter(
       const building = await repository.updateBuilding(parseId(request.params.id), validateBuildingUpdate(request.body), currentUser(request).userId);
       if (!building) throw notFound();
       response.status(200).json({ success: true, data: serializeBuilding(building) });
-    } catch (error) { next(normalizePropertyError(error)); }
+    } catch (error) { next(normalizePropertyError(error, request.body)); }
   });
 
-  router.post('/flats', ...adminOnly, async (request, response, next) => {
+  router.post('/flats', ...adminOrManager, async (request, response, next) => {
     try {
-      const flat = await repository.createFlat(validateFlatCreate(request.body), currentUser(request).userId);
+      const actor = currentUser(request);
+      const flat = await repository.createFlat(validateFlatCreate(request.body, actor), actor.userId);
       response.status(201).json({ success: true, data: serializeFlat(flat) });
     } catch (error) { next(normalizePropertyError(error)); }
   });
-  router.get('/flats', ...adminOnly, async (request, response, next) => {
+  router.get('/flats', ...adminOrManager, async (request, response, next) => {
     try {
-      const flats = await repository.findFlats(validateFilters(request.query, 'flat'));
+      const filters = scopeSocietyFilter(validateFilters(request.query, 'flat'), request);
+      const flats = await repository.findFlats(filters);
       response.status(200).json({ success: true, data: flats.map(serializeFlat) });
     } catch (error) { next(error); }
   });
-  router.get('/flats/:id', ...adminOnly, async (request, response, next) => {
+  router.get('/flats/:id', ...adminOrManager, async (request, response, next) => {
     try {
       const flat = await repository.findFlatById(parseId(request.params.id));
       if (!flat) throw notFound();
+      assertSocietyScope(request, flat.societyId);
       response.status(200).json({ success: true, data: serializeFlat(flat) });
     } catch (error) { next(error); }
   });
@@ -295,6 +304,23 @@ function currentUser(request: Request) {
   return request.currentUser;
 }
 
+function scopeSocietyFilter(filters: Record<string, string>, request: Request): Record<string, string> {
+  const actor = currentUser(request);
+  if (actor.role !== 'SOCIETY_MANAGER') return filters;
+  if (!actor.societyId) throw new ApiError(403, 'FORBIDDEN', 'A society assignment is required for this operation.');
+  if (filters.societyId && filters.societyId !== actor.societyId) {
+    throw new ApiError(403, 'FORBIDDEN', 'You do not have permission to access this society.');
+  }
+  return { ...filters, societyId: actor.societyId };
+}
+
+function assertSocietyScope(request: Request, societyId: string): void {
+  const actor = currentUser(request);
+  if (actor.role === 'SOCIETY_MANAGER' && actor.societyId !== societyId) {
+    throw new ApiError(403, 'FORBIDDEN', 'You do not have permission to access this society.');
+  }
+}
+
 function parseId(value: string | string[] | undefined): string {
   if (typeof value !== 'string' || !Types.ObjectId.isValid(value)) throw notFound();
   return new Types.ObjectId(value).toString();
@@ -325,11 +351,18 @@ function validateBuildingUpdate(value: unknown): Partial<Omit<BuildingData, 'soc
   };
 }
 
-function validateFlatCreate(value: unknown): FlatData {
+function validateFlatCreate(value: unknown, actor?: Request['currentUser']): FlatData {
   const body = object(value);
   assertKeys(body, ['societyId', 'buildingId', 'flatNumber', 'floor', 'type', 'status']);
+  const societyId = actor?.role === 'SOCIETY_MANAGER'
+    ? actor.societyId
+    : objectId(body.societyId, 'societyId');
+  if (!societyId) throw new ApiError(403, 'FORBIDDEN', 'A society assignment is required to create a flat.');
+  if (actor?.role === 'SOCIETY_MANAGER' && body.societyId !== undefined && body.societyId !== societyId) {
+    throw new ApiError(403, 'FORBIDDEN', 'A manager can create flats only in their assigned society.');
+  }
   return {
-    societyId: objectId(body.societyId, 'societyId'),
+    societyId: objectId(societyId, 'societyId'),
     buildingId: objectId(body.buildingId, 'buildingId'),
     flatNumber: nonEmpty(body.flatNumber, 'flatNumber'),
     ...(body.floor === undefined ? {} : { floor: integer(body.floor, 'floor') }),
@@ -409,8 +442,23 @@ function notFound(): ApiError {
   return new ApiError(404, 'NOT_FOUND', 'The requested API resource was not found.');
 }
 
-function normalizePropertyError(error: unknown): unknown {
+export function normalizePropertyError(error: unknown, requestBody?: unknown): unknown {
   if (error instanceof ApiError) return error;
-  if (error && typeof error === 'object' && 'code' in error && error.code === 11000) return new ApiError(409, 'CONFLICT', 'The property identifier already exists.');
+  if (error && typeof error === 'object' && 'code' in error && error.code === 11000) {
+    const keyPattern = 'keyPattern' in error && error.keyPattern && typeof error.keyPattern === 'object'
+      ? error.keyPattern as Record<string, unknown>
+      : {};
+    if ('buildingCode' in keyPattern) {
+      const buildingCode = requestBody && typeof requestBody === 'object' && !Array.isArray(requestBody)
+        ? (requestBody as Record<string, unknown>).buildingCode
+        : undefined;
+      if (typeof buildingCode !== 'string' || !buildingCode.trim()) {
+        return new ApiError(409, 'BUILDING_CODE_INDEX_MIGRATION_REQUIRED', 'The connected database still has a legacy building-code index that treats this optional field as required. An index upgrade is needed before another code-less building can be created; no building was added.');
+      }
+      return new ApiError(409, 'BUILDING_CODE_ALREADY_EXISTS', 'A building with this code already exists in the selected society. Choose a different building code.');
+    }
+    if ('flatNumber' in keyPattern) return new ApiError(409, 'FLAT_ALREADY_EXISTS', 'A flat with this number already exists in the selected building. Select the existing flat instead.');
+    return new ApiError(409, 'PROPERTY_CONFLICT', 'The property record conflicts with an existing unique property value. Review the existing building and flat details.');
+  }
   return error;
 }

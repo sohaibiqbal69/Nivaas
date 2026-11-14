@@ -24,6 +24,27 @@ export function createAuthRouter(
     }
   });
 
+  router.post('/refresh', async (request: Request, response: Response, next: NextFunction) => {
+    try {
+      const refreshToken = readRefreshToken(request.body);
+      const result = await authenticationService.refresh(refreshToken);
+      if (!result) throw new ApiError(401, 'UNAUTHORIZED', 'The authentication session has expired. Sign in again.');
+      response.status(200).json({ success: true, data: result });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.post('/logout', async (request: Request, response: Response, next: NextFunction) => {
+    try {
+      const refreshToken = readRefreshToken(request.body);
+      await authenticationService.logout(refreshToken);
+      response.status(200).json({ success: true, data: {} });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   router.post('/setup', async (request: Request, response: Response, next: NextFunction) => {
     try {
       const { credential, newPassword } = validateSetupRequest(request.body);
@@ -42,6 +63,17 @@ function isLoginRequest(value: unknown): value is { email: string; password: str
   const body = value as Record<string, unknown>;
   return typeof body.email === 'string' && body.email.trim().length > 0
     && typeof body.password === 'string' && body.password.length > 0;
+}
+
+function readRefreshToken(value: unknown): string {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new ApiError(400, 'VALIDATION_ERROR', 'A refresh token is required.');
+  }
+  const token = (value as Record<string, unknown>).refreshToken;
+  if (typeof token !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(token)) {
+    throw new ApiError(400, 'VALIDATION_ERROR', 'A refresh token is required.');
+  }
+  return token;
 }
 
 function validateSetupRequest(value: unknown): { credential: string; newPassword: string } {

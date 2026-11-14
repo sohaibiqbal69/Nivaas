@@ -1,0 +1,30 @@
+import { afterEach, expect, it, vi } from 'vitest';
+import { createComplaint, getComplaint, listComplaints, updateComplaint, uploadComplaintEvidence, downloadComplaintEvidence } from './complaints';
+afterEach(() => vi.unstubAllGlobals());
+it('uses authenticated complaint endpoints and sends no caller-controlled scope', async () => {
+  const fetcher = vi.fn().mockImplementation(async () => new Response(JSON.stringify({ success: true, data: {} }), { status: 200 }));
+  vi.stubGlobal('fetch', fetcher);
+  const input = { title: 'Leak', description: 'Water', category: 'Repair', priority: 'High' };
+  await createComplaint('token', input);
+  expect(fetcher.mock.calls[0][0]).toBe('/api/complaints');
+  expect(JSON.parse(fetcher.mock.calls[0][1].body)).toEqual(input);
+  expect(fetcher.mock.calls[0][1].headers.get('Authorization')).toBe('Bearer token');
+  await listComplaints('token', 2, 'OPEN');
+  expect(fetcher.mock.calls[1][0]).toBe('/api/complaints?page=2&status=OPEN');
+  await getComplaint('token', 'record');
+  await updateComplaint('token', 'record', 'resolve', 'Fixed');
+  expect(fetcher.mock.calls[3][0]).toBe('/api/complaints/record/resolve');
+  expect(JSON.parse(fetcher.mock.calls[3][1].body)).toEqual({ description: 'Fixed' });
+});
+it('sends raw photo bytes and downloads through the authenticated API rather than public URLs', async () => {
+  const fetcher = vi.fn().mockImplementationOnce(async () => new Response(JSON.stringify({ success: true, data: { _id: 'e1' } }), { status: 201 })).mockImplementationOnce(async () => new Response('photo-bytes'));
+  vi.stubGlobal('fetch', fetcher);
+  const file = new File(['photo-bytes'], 'untrusted.exe');
+  await uploadComplaintEvidence('token', 'c1', 'COMPLAINT_PHOTO', file);
+  expect(fetcher.mock.calls[0][1].body).toBe(file);
+  expect(fetcher.mock.calls[0][1].headers.get('Content-Type')).toBe('application/octet-stream');
+  expect(fetcher.mock.calls[0][0]).toBe('/api/evidence/upload?complaintId=c1&category=COMPLAINT_PHOTO');
+  const blob = await downloadComplaintEvidence('token', 'e1');
+  expect(blob.size).toBe(11);
+  expect(fetcher.mock.calls[1][1].headers.get('Authorization')).toBe('Bearer token');
+});

@@ -15,7 +15,17 @@ export const buildingSchema = new Schema(
 );
 
 buildingSchema.index({ societyId: 1 });
-buildingSchema.index({ societyId: 1, buildingCode: 1 }, { unique: true, sparse: true });
+// Only records with a string buildingCode participate in uniqueness. A sparse
+// compound index still indexes documents that have societyId, which made an
+// otherwise optional buildingCode effectively mandatory after the first row.
+buildingSchema.index(
+  { societyId: 1, buildingCode: 1 },
+  {
+    name: 'uniq_society_building_code_present',
+    unique: true,
+    partialFilterExpression: { buildingCode: { $type: 'string' } },
+  },
+);
 
 export type BuildingRecord = InferSchemaType<typeof buildingSchema>;
 export const Building = models.Building ?? model('Building', buildingSchema);

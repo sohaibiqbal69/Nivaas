@@ -5,7 +5,7 @@ export const QUOTATION_STATUSES = ['DRAFT', 'SUBMITTED', 'UNDER_REVIEW', 'SELECT
 export const quotationSchema = new Schema(
   {
     projectId: { type: Schema.Types.ObjectId, ref: 'Project', required: true, immutable: true },
-    vendorId: { type: Schema.Types.ObjectId, required: true, immutable: true },
+    vendorId: { type: Schema.Types.ObjectId, ref: 'Vendor', required: true, immutable: true },
     versionNumber: { type: Number, required: true, immutable: true, min: 1 },
     amount: { type: Schema.Types.Decimal128, required: true },
     description: { type: String, required: true },

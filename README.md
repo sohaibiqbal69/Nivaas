@@ -8,9 +8,12 @@ blockchain is used as an integrity and proof layer for selected records.
 
 - `frontend/` — React, Vite, TypeScript, Tailwind CSS, shadcn/ui conventions,
   React Router, native Fetch API, and Anime.js.
-- `backend/` — Node.js, Express, TypeScript, and Mongoose foundation.
-- `blockchain/` — Solidity and Hardhat development foundation. No Nivaas
-  contract behavior is implemented yet.
+- `backend/` — Node.js, Express, TypeScript, Mongoose, authentication and
+  society-scoped governance, property, project, finance, notice, complaint,
+  evidence, audit and proof APIs.
+- `blockchain/` — Solidity and Hardhat, including the versioned
+  `GovernanceProofRegistry` contract. The current deployment script is
+  localhost-only.
 
 The workspaces form a modular monolith. Business rules and governance
 decisions belong in backend services and remain governed by the specifications
@@ -20,7 +23,7 @@ in `docs/`.
 
 - Node.js 22 or later
 - npm 10 or later
-- MongoDB is needed only when using the database connection foundation.
+- MongoDB is needed to run the backend against persisted records.
 - Docker Desktop is needed for the local transaction-capable MongoDB test replica set.
 
 ## Install and run
@@ -48,7 +51,9 @@ Playwright browser binaries may be installed separately with
 
 Copy `.env.example` to `.env` when configuring local services. Never commit
 environment files or secrets. Database and blockchain connection details are
-not needed to compile the scaffold.
+not needed to build the frontend/backend. See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)
+for deployment preparation, current production blockers, and safe environment
+configuration. No service or public contract is currently deployed.
 
 ## Transaction integration tests
 
@@ -60,15 +65,17 @@ root:
 docker compose up -d mongodb
 ```
 
-Set `MONGODB_TEST_URI` from `.env.example` when running transaction-dependent
-integration tests. It points to the separate `nivaas_test` database and must
-not replace the normal application `MONGODB_URI`. The test helper fails
-clearly if the variable is missing, MongoDB is unavailable, or the connection
-does not report an `rs0` primary. Existing unit tests do not connect to MongoDB.
+Set `MONGODB_TEST_URI` and `NIVAAS_DISPOSABLE_DATABASE` in `.env` when running
+transaction-dependent integration tests. Both must name the same new local
+`nivaas_disposable_*` database on the `rs0` replica set. The integration helper
+clears all collections in that disposable database and refuses `nivaas`,
+`nivaas_demo`, `nivaas_test` and other protected targets. Never reuse
+`MONGODB_URI` or point integration tests at a production/Atlas database.
+Existing unit tests do not connect to MongoDB.
 
 ## Scope
 
-This repository foundation intentionally does not implement authentication,
-domain models, governance workflows, business APIs, production deployment,
-wallet transactions, or a Nivaas smart contract. See `AGENTS.md` and `docs/`
-before extending it.
+Production service configuration, private cloud evidence storage, production
+account/credential provisioning, public-testnet deployment and MetaMask
+interactions remain unfinished or unresolved. See `AGENTS.md` and `docs/`
+before changing behavior or architecture.

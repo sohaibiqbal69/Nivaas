@@ -6,12 +6,18 @@ import { requireRoles } from '../../middleware/require-roles.js';
 import { authenticate } from '../auth/authentication-middleware.js';
 import { AuditLog } from '../audit/models/AuditLog.js';
 import { Budget } from '../budget/models/Budget.js';
+import { Evidence } from '../evidence/models/Evidence.js';
+import { Expense } from '../expense/models/Expense.js';
 import { Committee } from '../committee/models/Committee.js';
 import { CommitteeMember } from '../committee/models/CommitteeMember.js';
 import { Society } from '../society/models/Society.js';
+import { assertOwnerSocietyAccess } from '../property/owner-society-access.js';
 import { Project, PROJECT_STATUSES } from './models/Project.js';
+import { ProjectUpdate } from './models/ProjectUpdate.js';
 
-const projectFields = '_id societyId title description category estimatedCost approvedCost finalCost status proposedBy approvalType approvalStatus meetingId vendorId budgetId currentQuotationId governanceResolutionId activeRuleVersionId createdAt updatedAt';
+const projectFields = '_id societyId title description category estimatedCost approvedCost finalCost status proposedBy approvalType approvalStatus meetingId vendorId budgetId currentQuotationId governanceResolutionId activeRuleVersionId createdAt updatedAt __v';
+const projectDiscoveryFields = '_id title category status createdAt updatedAt';
+const projectUpdateFields = '_id societyId projectId kind title description invoiceReference createdBy createdAt';
 const governedFields = new Set(['status', 'approvalStatus', 'approvalType', 'approvedAt', 'finalApprovalResult']);
 const terminalStatuses = new Set(['CLOSED', 'CANCELLED', 'COMPLETED']);
 
@@ -36,6 +42,18 @@ type ProjectRecord = {
   activeRuleVersionId?: { toString(): string };
   createdAt: Date;
   updatedAt: Date;
+  __v: number;
+};
+
+type ProjectUpdateRecord = { _id: { toString(): string }; societyId: { toString(): string }; projectId: { toString(): string }; kind: string; title: string; description: string; invoiceReference?: string; createdBy: { toString(): string }; createdAt: Date };
+
+type ProjectDiscoveryRecord = {
+  _id: { toString(): string };
+  title: string;
+  category: string;
+  status: string;
+  createdAt: Date;
+  updatedAt: Date;
 };
 
 export function createProjectsRouter(
@@ -43,15 +61,27 @@ export function createProjectsRouter(
   loadAuthenticatedUser = loadCurrentUser,
 ): Router {
   const router = Router();
-  const authorized = [
+  const readable = [
     authenticateRequest,
     loadAuthenticatedUser,
-    requireRoles('SYSTEM_ADMIN', 'SOCIETY_MANAGER', 'COMMITTEE_MEMBER'),
+    requireRoles('SYSTEM_ADMIN', 'SOCIETY_MANAGER', 'COMMITTEE_MEMBER', 'OWNER_MEMBER'),
+  ] as const;
+  const projectCreator = [authenticateRequest, loadAuthenticatedUser, requireRoles('SOCIETY_MANAGER', 'COMMITTEE_MEMBER')] as const;
+  const managerOnly = [authenticateRequest, loadAuthenticatedUser, requireRoles('SOCIETY_MANAGER')] as const;
+  const listable = [
+    authenticateRequest,
+    loadAuthenticatedUser,
+    requireRoles('SYSTEM_ADMIN', 'SOCIETY_MANAGER', 'COMMITTEE_MEMBER', 'OWNER_MEMBER', 'RESIDENT'),
   ] as const;
 
-  router.get('/projects', ...authorized, async (request, response, next) => {
+  router.get('/projects', ...listable, async (request, response, next) => {
     try {
       const user = currentUser(request);
+      if (user.role === 'OWNER_MEMBER') {
+        if (!user.societyId) throw forbidden();
+        await assertOwnerSocietyAccess(user, user.societyId);
+      }
+      const discoveryOnly = user.role === 'RESIDENT';
       const query: Record<string, unknown> = {};
       if (user.role !== 'SYSTEM_ADMIN') query.societyId = user.societyId;
       else if (request.query.societyId !== undefined) query.societyId = objectId(request.query.societyId, 'societyId');
@@ -60,11 +90,13 @@ export function createProjectsRouter(
       const page = positiveInteger(request.query.page, 'page', 1);
       const pageSize = positiveInteger(request.query.pageSize, 'pageSize', 25);
       if (pageSize > 100) throw validation('pageSize must not exceed 100.');
-      const records = await Project.find(query).select(projectFields)
+      const records = await Project.find(query).select(discoveryOnly ? projectDiscoveryFields : projectFields)
         .sort({ createdAt: -1, _id: -1 }).skip((page - 1) * pageSize).limit(pageSize).lean().exec();
       response.json({
         success: true,
-        data: (records as unknown as ProjectRecord[]).map(serializeProject),
+        data: discoveryOnly
+          ? (records as unknown as ProjectDiscoveryRecord[]).map(serializeProjectDiscovery)
+          : (records as unknown as ProjectRecord[]).map(serializeProject),
         pagination: { page, pageSize },
       });
     } catch (error) {
@@ -72,7 +104,54 @@ export function createProjectsRouter(
     }
   });
 
-  router.get('/projects/:id', ...authorized, async (request, response, next) => {
+  router.get('/projects/:projectId/updates', authenticateRequest, loadAuthenticatedUser, requireRoles('SYSTEM_ADMIN', 'SOCIETY_MANAGER', 'COMMITTEE_MEMBER', 'OWNER_MEMBER'), async (request, response, next) => {
+    try {
+      const user = currentUser(request); const project = await findProject(request.params.projectId, user);
+      if (!project) throw notFound();
+      const records = await ProjectUpdate.find({ societyId: project.societyId, projectId: project._id }).select(projectUpdateFields).sort({ createdAt: 1, _id: 1 }).lean().exec() as unknown as ProjectUpdateRecord[];
+      const updates = await Promise.all(records.map(async update => ({ ...serializeProjectUpdate(update, user.role !== 'OWNER_MEMBER'), evidence: (await Evidence.find({ societyId: project.societyId, relatedEntityType: 'ProjectUpdate', relatedEntityId: update._id }).select('_id fileName fileType fileSize fileHash category createdAt').sort({ createdAt: 1 }).lean().exec()).map(item => ({ ...item, _id: String(item._id) })) })));
+      response.json({ success: true, data: updates });
+    } catch (error) { next(normalizeError(error)); }
+  });
+
+  router.get('/project-updates/:id', authenticateRequest, loadAuthenticatedUser, requireRoles('SYSTEM_ADMIN', 'SOCIETY_MANAGER', 'COMMITTEE_MEMBER', 'OWNER_MEMBER'), async (request, response, next) => {
+    try {
+      const user = currentUser(request); const update = await ProjectUpdate.findById(objectId(request.params.id, 'projectUpdateId')).select(projectUpdateFields).lean().exec() as unknown as ProjectUpdateRecord | null;
+      if (!update || !await findProject(update.projectId.toString(), user)) throw notFound();
+      const evidence = await Evidence.find({ societyId: update.societyId, relatedEntityType: 'ProjectUpdate', relatedEntityId: update._id }).select('_id fileName fileType fileSize fileHash category createdAt').sort({ createdAt: 1 }).lean().exec();
+      response.json({ success: true, data: { ...serializeProjectUpdate(update, user.role !== 'OWNER_MEMBER'), evidence: evidence.map(item => ({ ...item, _id: String(item._id) })) } });
+    } catch (error) { next(normalizeError(error)); }
+  });
+
+  router.post('/projects/:projectId/updates', ...managerOnly, async (request, response, next) => {
+    try {
+      const user = currentUser(request); const body = objectBody(request.body);
+      if (Object.keys(body).some(key => !['kind', 'title', 'description', 'invoiceReference'].includes(key))) throw validation('The project update contains unsupported fields.');
+      if (!['PROGRESS', 'COMPLETION'].includes(String(body.kind))) throw validation('kind must be PROGRESS or COMPLETION.');
+      const title = nonEmpty(body.title, 'title'); const description = nonEmpty(body.description, 'description');
+      const invoiceReference = body.invoiceReference === undefined ? undefined : nonEmpty(body.invoiceReference, 'invoiceReference');
+      if (title.length > 160 || description.length > 5000 || invoiceReference && invoiceReference.length > 240) throw validation('The project update exceeds an allowed field length.');
+      if (body.kind === 'COMPLETION' && !invoiceReference) throw validation('A final invoice reference is required for a completion record.');
+      const session = await mongoose.startSession();
+      try {
+        let created: Record<string, unknown> | null = null;
+        await session.withTransaction(async () => {
+          const project = await findProject(request.params.projectId, user, session);
+          if (!project) return;
+          if (project.status !== 'IN_PROGRESS') throw new ApiError(409, 'PROJECT_NOT_IN_PROGRESS', 'Progress or completion evidence can only be added while the project is IN_PROGRESS.');
+          const locked = await Project.updateOne({ _id: project._id, societyId: project.societyId, status: 'IN_PROGRESS', __v: project.__v }, { $inc: { __v: 1 } }, { session });
+          if (locked.modifiedCount !== 1) throw new ApiError(409, 'PROJECT_CHANGED', 'Project state changed. Refresh before adding progress.');
+          const [update] = await ProjectUpdate.create([{ societyId: project.societyId, projectId: project._id, kind: body.kind, title, description, ...(invoiceReference ? { invoiceReference } : {}), createdBy: user.userId }], { session });
+          await new AuditLog({ societyId: project.societyId, actorId: user.userId, action: body.kind === 'COMPLETION' ? 'PROJECT_COMPLETION_EVIDENCE_RECORDED' : 'PROJECT_PROGRESS_UPDATED', entityType: 'ProjectUpdate', entityId: update._id, newState: { projectId: project._id, kind: update.kind, title: update.title, description: update.description, ...(update.invoiceReference ? { invoiceReference: update.invoiceReference } : {}) } }).save({ session });
+          created = serializeProjectUpdate(update.toObject() as unknown as ProjectUpdateRecord, true);
+        });
+        if (!created) throw notFound();
+        response.status(201).json({ success: true, data: created });
+      } finally { await session.endSession(); }
+    } catch (error) { next(normalizeError(error)); }
+  });
+
+  router.get('/projects/:id', ...readable, async (request, response, next) => {
     try {
       const project = await findProject(request.params.id, currentUser(request));
       if (!project) throw notFound();
@@ -82,7 +161,7 @@ export function createProjectsRouter(
     }
   });
 
-  router.post('/projects', ...authorized, async (request, response, next) => {
+  router.post('/projects', ...projectCreator, async (request, response, next) => {
     try {
       const user = currentUser(request);
       const data = validateProjectBody(request.body, false);
@@ -115,7 +194,7 @@ export function createProjectsRouter(
     }
   });
 
-  router.patch('/projects/:id', ...authorized, async (request, response, next) => {
+  router.patch('/projects/:id', ...managerOnly, async (request, response, next) => {
     try {
       const user = currentUser(request);
       const update = validateProjectBody(request.body, true);
@@ -148,13 +227,43 @@ export function createProjectsRouter(
     }
   });
 
-  router.post('/projects/:id/submit', ...authorized, (request, response, next) =>
+  router.post('/projects/:id/submit', ...managerOnly, (request, response, next) =>
     transition(request, response, next, 'SUBMITTED', 'PROJECT_SUBMITTED'));
-  router.post('/projects/:id/start', ...authorized, (request, response, next) =>
+  router.post('/projects/:id/start', ...managerOnly, (request, response, next) =>
     transition(request, response, next, 'IN_PROGRESS', 'PROJECT_STARTED', 'APPROVED'));
-  router.post('/projects/:id/complete', ...authorized, (request, response, next) =>
-    transition(request, response, next, 'COMPLETED', 'PROJECT_COMPLETED', 'IN_PROGRESS'));
-  router.post('/projects/:id/cancel', ...authorized, (request, response, next) =>
+  router.post('/projects/:id/complete', ...managerOnly, async (request, response, next) => {
+    try {
+      const user = currentUser(request); const body = objectBody(request.body);
+      if (Object.keys(body).some(key => !['completionUpdateId', 'finalCost'].includes(key))) throw validation('The completion request contains unsupported fields.');
+      const finalCost = monetary(body.finalCost);
+      const completionUpdateId = objectId(body.completionUpdateId, 'completionUpdateId');
+      const session = await mongoose.startSession();
+      try {
+        let updated: ProjectRecord | null = null;
+        await session.withTransaction(async () => {
+          const project = await findProject(request.params.id, user, session);
+          if (!project) return;
+          if (project.status !== 'IN_PROGRESS') throw validation('Project must be IN_PROGRESS before it can be completed.');
+          if (!project.approvedCost) throw new ApiError(409, 'APPROVED_COST_REQUIRED', 'A persisted approved project amount is required before completion.');
+          if (compareDecimal(finalCost, project.approvedCost.toString()) > 0) throw new ApiError(409, 'PROJECT_COST_EXCEEDS_APPROVAL', 'Final cost exceeds the approved amount. Record the applicable quotation change and governance re-approval before completion.');
+          const completion = await ProjectUpdate.findOne({ _id: completionUpdateId, societyId: project.societyId, projectId: project._id, kind: 'COMPLETION' }).session(session).lean().exec() as ProjectUpdateRecord | null;
+          if (!completion) throw new ApiError(409, 'COMPLETION_RECORD_REQUIRED', 'A completion record with a final invoice reference is required.');
+          const afterEvidence = await Evidence.exists({ societyId: project.societyId, relatedEntityType: 'ProjectUpdate', relatedEntityId: completion._id, category: 'AFTER_PHOTO' }).session(session);
+          if (!afterEvidence) throw new ApiError(409, 'COMPLETION_EVIDENCE_REQUIRED', 'At least one private after-condition photograph must be attached to the completion record.');
+          const expenses = await Expense.find({ societyId: project.societyId, projectId: project._id }).select('amount').session(session).lean().exec() as unknown as Array<{ amount: { toString(): string } }>;
+          const spent = expenses.reduce((sum, expense) => addDecimal(sum, expense.amount.toString()), '0');
+          if (compareDecimal(finalCost, spent) < 0) throw new ApiError(409, 'FINAL_COST_BELOW_RECORDED_EXPENSES', 'Final cost cannot be lower than the total of recorded project expenses.');
+          const result = await Project.findOneAndUpdate({ _id: project._id, societyId: project.societyId, status: 'IN_PROGRESS', __v: project.__v }, { $set: { status: 'COMPLETED', finalCost: Types.Decimal128.fromString(finalCost) }, $inc: { __v: 1 } }, { new: true, runValidators: true, session }).select(projectFields).lean().exec();
+          if (!result) throw new ApiError(409, 'PROJECT_STATE_CHANGED', 'The project changed during completion. Refresh before retrying.');
+          updated = result as unknown as ProjectRecord;
+          await new AuditLog({ societyId: project.societyId, actorId: user.userId, action: 'PROJECT_COMPLETED', entityType: 'Project', entityId: project._id, previousState: { status: project.status, finalCost: project.finalCost?.toString() }, newState: { status: 'COMPLETED', finalCost, completionUpdateId, expenseTotal: spent } }).save({ session });
+        });
+        if (!updated) throw notFound();
+        response.json({ success: true, data: serializeProject(updated) });
+      } finally { await session.endSession(); }
+    } catch (error) { next(normalizeError(error)); }
+  });
+  router.post('/projects/:id/cancel', ...managerOnly, (request, response, next) =>
     transition(request, response, next, 'CANCELLED', 'PROJECT_CANCELLED'));
 
   return router;
@@ -184,7 +293,7 @@ export function createProjectsRouter(
           if (targetStatus === 'SUBMITTED' && existing.status !== 'DRAFT') {
             throw validation('Only draft projects can be submitted.');
           }
-          const result = await Project.findByIdAndUpdate(existing._id, { status: targetStatus }, {
+          const result = await Project.findOneAndUpdate({ _id: existing._id, societyId: existing.societyId, status: existing.status, __v: existing.__v }, { $set: { status: targetStatus }, $inc: { __v: 1 } }, {
             new: true, runValidators: true, session,
           }).select(projectFields).lean().exec();
           if (!result) return;
@@ -205,7 +314,9 @@ export function createProjectsRouter(
 async function findProject(id: unknown, user: CurrentUserContext, session?: mongoose.ClientSession): Promise<ProjectRecord | null> {
   const query: Record<string, unknown> = { _id: objectId(id, 'projectId') };
   if (user.role !== 'SYSTEM_ADMIN') query.societyId = user.societyId;
-  return Project.findOne(query).select(projectFields).session(session ?? null).lean().exec() as unknown as Promise<ProjectRecord | null>;
+  const project = await Project.findOne(query).select(projectFields).session(session ?? null).lean().exec() as unknown as ProjectRecord | null;
+  if (project) await assertOwnerSocietyAccess(user, project.societyId.toString());
+  return project;
 }
 
 async function isAuthorizedCommitteeMember(userId: string, societyId: string): Promise<boolean> {
@@ -250,6 +361,34 @@ function serializeProject(project: ProjectRecord): Record<string, unknown> {
     if (value !== undefined) result[field] = typeof value === 'object' && value !== null && 'toString' in value ? value.toString() : value;
   }
   return result;
+}
+
+function serializeProjectDiscovery(project: ProjectDiscoveryRecord): Record<string, unknown> {
+  return {
+    _id: project._id.toString(),
+    title: project.title,
+    category: project.category,
+    status: project.status,
+    createdAt: project.createdAt,
+    updatedAt: project.updatedAt,
+  };
+}
+
+function serializeProjectUpdate(update: ProjectUpdateRecord, showActor: boolean): Record<string, unknown> {
+  return { _id: update._id.toString(), societyId: update.societyId.toString(), projectId: update.projectId.toString(), kind: update.kind, title: update.title, description: update.description, ...(showActor && update.invoiceReference ? { invoiceReference: update.invoiceReference } : {}), ...(showActor ? { createdBy: update.createdBy.toString() } : {}), createdAt: update.createdAt };
+}
+
+function compareDecimal(left: string, right: string): number {
+  const places = Math.max(left.split('.')[1]?.length ?? 0, right.split('.')[1]?.length ?? 0);
+  const integer = (value: string) => { const [whole, fraction = ''] = value.split('.'); return BigInt(`${whole}${fraction.padEnd(places, '0')}`); };
+  const a = integer(left); const b = integer(right); return a === b ? 0 : a < b ? -1 : 1;
+}
+
+function addDecimal(left: string, right: string): string {
+  const places = Math.max(left.split('.')[1]?.length ?? 0, right.split('.')[1]?.length ?? 0);
+  const integer = (value: string) => { const [whole, fraction = ''] = value.split('.'); return BigInt(`${whole}${fraction.padEnd(places, '0')}`); };
+  const sum = (integer(left) + integer(right)).toString().padStart(places + 1, '0');
+  return normalizeDecimal(places ? `${sum.slice(0, -places)}.${sum.slice(-places)}` : sum);
 }
 
 function validateProjectBody(value: unknown, partial: boolean): Record<string, unknown> {

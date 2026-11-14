@@ -13,6 +13,7 @@ export type SetupCredentialRecord = {
   createdAt: Date;
   expiresAt: Date;
   consumedAt?: Date | null;
+  revokedAt?: Date | null;
 };
 
 export type SetupUserRecord = {
@@ -113,7 +114,7 @@ export class AccountSetupService {
 
         // 1. Find and validate the setup credential
         const credentialRecord = await this.repository.findCredentialByHash(credentialHash, session);
-        if (!credentialRecord || credentialRecord.consumedAt || credentialRecord.expiresAt <= now) {
+        if (!credentialRecord || credentialRecord.consumedAt || credentialRecord.revokedAt || credentialRecord.expiresAt <= now) {
           throw new ApiError(401, 'UNAUTHORIZED', 'The setup credential is invalid or has expired.');
         }
 

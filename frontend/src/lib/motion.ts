@@ -1,31 +1,27 @@
-import { animate, createScope, type Scope, utils } from 'animejs';
-
-export type MotionRoot = HTMLElement | null;
+import { animate, createScope, type Scope } from 'animejs';
 
 export function prefersReducedMotion(): boolean {
   return typeof window !== 'undefined'
     && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 }
 
-export function createMotionScope(root: MotionRoot): Scope | null {
+export function createMotionScope(root: HTMLElement | null): Scope | null {
   if (!root || prefersReducedMotion()) return null;
   return createScope({ root });
 }
 
-export function revealPage(root: MotionRoot): Scope | null {
-  const scope = createMotionScope(root);
-  if (!scope) return null;
+export function revertMotionScope(scope: Scope | null): void {
+  scope?.revert();
+}
 
-  scope.add(() => {
-    animate('.motion-item', {
-      opacity: [0, 1],
-      translateY: [12, 0],
-      duration: 500,
-      delay: utils.stagger(55),
-      ease: 'out(3)',
-    });
+export function enterDrawer(element: HTMLElement | null): void {
+  if (!element || prefersReducedMotion()) return;
+  animate(element, {
+    opacity: [0.85, 1],
+    translateX: [-14, 0],
+    duration: 220,
+    ease: 'out(3)',
   });
-  return scope;
 }
 
 export function pressFeedback(element: HTMLElement): void {

@@ -20,7 +20,7 @@ export type ApiClientOptions = RequestInit & {
   token?: string;
 };
 
-type UnauthorizedHandler = (failedToken?: string) => void;
+type UnauthorizedHandler = (failedToken: string) => Promise<string | null>;
 
 let unauthorizedHandler: UnauthorizedHandler | null = null;
 
@@ -43,11 +43,11 @@ export function resolveApiUrl(baseUrl: string, path: string): string {
 
 const apiBaseUrl = normalizeApiBaseUrl(import.meta.env.VITE_API_BASE_URL);
 
-export async function apiRequest<T>(path: string, options: ApiClientOptions = {}): Promise<T> {
+async function requestResponse(path: string, options: ApiClientOptions = {}, alreadyRetried = false): Promise<Response> {
   const { token, headers: suppliedHeaders, body, ...requestInit } = options;
   const headers = new Headers(suppliedHeaders);
   headers.set('Accept', 'application/json');
-  if (body !== undefined) headers.set('Content-Type', 'application/json');
+  if (body !== undefined && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
   if (token) headers.set('Authorization', `Bearer ${token}`);
 
   let response: Response;
@@ -61,9 +61,14 @@ export async function apiRequest<T>(path: string, options: ApiClientOptions = {}
     });
   }
 
-  if (response.status === 401) unauthorizedHandler?.(token);
-  const payload = await readJson(response);
+  if (response.status === 401 && token && !alreadyRetried && !/^\/auth\/(?:refresh|logout)$/.test(path)) {
+    const renewedToken = await unauthorizedHandler?.(token);
+    if (renewedToken && renewedToken !== token) {
+      return requestResponse(path, { ...options, token: renewedToken }, true);
+    }
+  }
   if (!response.ok) {
+    const payload = await readJson(response);
     const error = payload && typeof payload === 'object' && 'error' in payload
       ? payload.error
       : undefined;
@@ -73,11 +78,20 @@ export async function apiRequest<T>(path: string, options: ApiClientOptions = {}
       status: response.status,
     });
   }
+  return response;
+}
 
+export async function apiRequest<T>(path: string, options: ApiClientOptions = {}): Promise<T> {
+  const response = await requestResponse(path, options);
+  const payload = await readJson(response);
   if (!isRecord(payload) || !('data' in payload)) {
     throw new ApiError({ code: 'INVALID_RESPONSE', message: 'The application service returned an invalid response.', status: response.status });
   }
   return payload.data as T;
+}
+
+export async function apiBlobRequest(path: string, options: ApiClientOptions = {}): Promise<Blob> {
+  return (await requestResponse(path, options)).blob();
 }
 
 async function readJson(response: Response): Promise<unknown> {
@@ -103,12 +117,32 @@ export type AuthUser = {
   status?: string;
 };
 
-export type LoginResult = { user: AuthUser; token: string };
+export type LoginResult = {
+  user: AuthUser;
+  token: string;
+  refreshToken: string;
+  refreshSessionId: string;
+  refreshTokenExpiresAt: string;
+};
 
 export function login(email: string, password: string) {
   return apiRequest<LoginResult>('/auth/login', {
     method: 'POST',
     body: JSON.stringify({ email, password }),
+  });
+}
+
+export function refreshAuthentication(refreshToken: string) {
+  return apiRequest<LoginResult>('/auth/refresh', {
+    method: 'POST',
+    body: JSON.stringify({ refreshToken }),
+  });
+}
+
+export function revokeAuthenticationSession(refreshToken: string) {
+  return apiRequest<Record<string, never>>('/auth/logout', {
+    method: 'POST',
+    body: JSON.stringify({ refreshToken }),
   });
 }
 

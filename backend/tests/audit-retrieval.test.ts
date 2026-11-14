@@ -8,6 +8,7 @@ import { createAuthenticationMiddleware } from '../src/modules/auth/authenticati
 import { issueAccessToken } from '../src/modules/auth/jwt.js';
 import { createAuditRouter, type AuditRecord, type AuditRepository } from '../src/modules/audit/audit-routes.js';
 import { hashAuditLog } from '../src/modules/audit/audit-log-hashing.js';
+import { isOwnerTransparencyAuditEntity } from '../src/modules/property/owner-society-access.js';
 
 const secret = 'audit-retrieval-tests-use-a-secret-with-32-bytes';
 const adminId = '68a123456789012345678901';
@@ -43,18 +44,24 @@ function audit(overrides: Partial<AuditRecord> = {}): AuditRecord {
   return record;
 }
 
-function createApp(identities: CurrentUserRecord[], initial: AuditRecord[]) {
+function createApp(identities: CurrentUserRecord[], initial: AuditRecord[], hasActiveOwnership = async () => false) {
   const repository: AuditRepository = {
     async find(filters, societyId, skip, limit) {
       return initial
         .filter((record) => societyId === null || record.societyId?.toString() === societyId)
         .filter((record) => !filters.action || record.action === filters.action)
         .filter((record) => !filters.entityType || record.entityType === filters.entityType)
+        .filter((record) => !filters.ownerTransparencyOnly || isOwnerTransparencyAuditEntity(record.entityType))
         .filter((record) => !filters.entityId || record.entityId?.toString() === filters.entityId)
         .filter((record) => !filters.from || record.createdAt >= filters.from)
         .filter((record) => !filters.to || record.createdAt <= filters.to)
+        .filter((record) => !filters.search || JSON.stringify([record.action.replaceAll('_', ' '), record.entityType, record.newState, record.previousState, record.metadata, record.relatedTitle]).toLocaleLowerCase().includes(filters.search.toLocaleLowerCase()))
         .sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime())
         .slice(skip, skip + limit);
+    },
+    async findById(id, societyId) {
+      return initial.find((record) => record._id.toString() === id.toString()
+        && (societyId === null || record.societyId?.toString() === societyId)) ?? null;
     },
   };
   const identityMap = new Map(identities.map((record) => [record._id.toString(), record]));
@@ -63,6 +70,7 @@ function createApp(identities: CurrentUserRecord[], initial: AuditRecord[]) {
     repository,
     createAuthenticationMiddleware(() => secret),
     createLoadCurrentUser({ async findById(id) { return identityMap.get(id) ?? null; } }),
+    hasActiveOwnership,
   ));
   app.use(errorHandler);
   return app;
@@ -93,19 +101,28 @@ describe('audit history retrieval', () => {
     expect(body.data[0].societyId).toBeNull();
   });
 
-  it('limits managers and committee members to their own society and denies owner/resident access', async () => {
-    const records = [audit(), audit({ societyId: new Types.ObjectId(societyB) })];
+  it('limits managers and committee members to their own society and requires owners to prove an active ownership relationship', async () => {
+    const publicRecord = audit({ action: 'PROJECT_APPROVED', entityType: 'Project' });
+    const privateRecord = audit();
+    const foreignRecord = audit({ societyId: new Types.ObjectId(societyB), action: 'PROJECT_APPROVED', entityType: 'Project' });
+    const records = [publicRecord, privateRecord, foreignRecord];
     for (const user of [
       identity(managerId, 'SOCIETY_MANAGER', societyA),
       identity(committeeId, 'COMMITTEE_MEMBER', societyA),
     ]) {
       const response = await request(createApp([user], records), '/audit', user._id.toString());
-      expect((await response.json()).data).toHaveLength(1);
+      expect((await response.json()).data).toHaveLength(2);
     }
-    for (const role of ['OWNER_MEMBER', 'RESIDENT']) {
-      const response = await request(createApp([identity(ownerId, role, societyA)], records), '/audit', ownerId);
-      expect(response.status).toBe(403);
-    }
+    const owner = identity(ownerId, 'OWNER_MEMBER', societyA);
+    const ownerApp = createApp([owner], records, async (_userId, targetSocietyId) => targetSocietyId === societyA);
+    const ownerResponse = await request(ownerApp, '/audit', ownerId);
+    expect(ownerResponse.status).toBe(200);
+    expect((await ownerResponse.json()).data.map((event: { _id: string }) => event._id)).toEqual([publicRecord._id.toString()]);
+    expect((await request(ownerApp, `/audit/events/${privateRecord._id}`, ownerId)).status).toBe(404);
+    expect((await request(createApp([owner], records), '/audit', ownerId)).status).toBe(404);
+
+    const resident = identity(ownerId, 'RESIDENT', societyA);
+    expect((await request(createApp([resident], records), '/audit', ownerId)).status).toBe(403);
   });
 
   it('filters entity history, rejects society bypass and validates pagination/date filters', async () => {
@@ -118,6 +135,37 @@ describe('audit history retrieval', () => {
     expect((await request(app, '/audit?from=bad', managerId)).status).toBe(400);
     expect((await request(app, '/audit?from=2026-02-01&to=2026-01-01', managerId)).status).toBe(400);
     expect((await request(app, '/audit', undefined)).status).toBe(401);
+  });
+
+  it('searches one partial case-insensitive event field before pagination and keeps dates and society scope', async () => {
+    const match = audit({ action: 'PROJECT_SUBMITTED_FOR_APPROVAL', newState: { title: 'CCTV replacement' }, createdAt: new Date('2026-01-03') });
+    const second = audit({ action: 'QUOTATION_CREATED', newState: { title: 'CCTV vendor quote' }, createdAt: new Date('2026-01-02') });
+    const foreign = audit({ societyId: new Types.ObjectId(societyB), action: 'PROJECT_SUBMITTED', newState: { title: 'CCTV foreign' } });
+    const app = createApp([identity(managerId, 'SOCIETY_MANAGER', societyA)], [match, second, foreign]);
+    const response = await request(app, '/audit?search=cCt&page=1&pageSize=1&from=2026-01-01&to=2026-01-04', managerId);
+    const body = await response.json();
+    expect(response.status).toBe(200);
+    expect(body.data).toHaveLength(1);
+    expect(body.data[0]._id).toBe(match._id.toString());
+    expect(body.data[0].eventTitle).toBe('Project Submitted For Approval');
+    expect((await request(app, '/audit?search=CCTV&action=PROJECT_SUBMITTED', managerId)).status).toBe(400);
+  });
+
+  it('searches human-readable event titles without requiring underscores from the stored action', async () => {
+    const record = audit({ action: 'PROJECT_SUBMITTED_FOR_APPROVAL' });
+    const response = await request(createApp([identity(managerId, 'SOCIETY_MANAGER', societyA)], [record]), '/audit?search=submitted%20for%20approval', managerId);
+    expect((await response.json()).data.map((event: { eventTitle: string }) => event.eventTitle)).toEqual(['Project Submitted For Approval']);
+  });
+
+  it('retrieves a directly linked historical audit record without pagination and preserves society isolation', async () => {
+    const historical = audit({ createdAt: new Date('2023-04-05T06:07:08.000Z') });
+    const foreign = audit({ societyId: new Types.ObjectId(societyB), createdAt: new Date('2023-04-05T06:07:08.000Z') });
+    const records = [historical, foreign];
+    const app = createApp([identity(managerId, 'SOCIETY_MANAGER', societyA)], records);
+    const response = await request(app, `/audit/events/${historical._id}`, managerId);
+    expect(response.status).toBe(200);
+    expect((await response.json()).data).toMatchObject({ _id: historical._id.toString(), integrity: { status: 'valid' } });
+    expect((await request(app, `/audit/events/${foreign._id}`, managerId)).status).toBe(404);
   });
 
   it('reports valid, tampered, and unsupported hashes while preserving BSON subtypes', async () => {

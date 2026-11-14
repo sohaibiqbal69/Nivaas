@@ -8,6 +8,7 @@ import { createAuthenticationMiddleware } from '../src/modules/auth/authenticati
 import { issueAccessToken } from '../src/modules/auth/jwt.js';
 import {
   createPropertyRouter,
+  normalizePropertyError,
   type BuildingRecord,
   type FlatRecord,
   type PropertyRepository,
@@ -19,6 +20,9 @@ const managerId = '68a123456789012345678902';
 const societyAId = '68a123456789012345678903';
 const buildingId = '68a123456789012345678904';
 const flatId = '68a123456789012345678905';
+const foreignBuildingId = '68a123456789012345678908';
+const foreignFlatId = '68a123456789012345678909';
+const societyBId = '68a123456789012345678910';
 const servers: Server[] = [];
 
 function identity(id: string, role: string, societyId: string | null): CurrentUserRecord {
@@ -33,16 +37,25 @@ function flat(): FlatRecord {
   return { _id: new Types.ObjectId(flatId), societyId: societyAId, buildingId, flatNumber: '101', status: 'ACTIVE', createdAt: new Date(), updatedAt: new Date(), internal: 'hidden' };
 }
 
+function foreignBuilding(): BuildingRecord {
+  return { ...building(), _id: new Types.ObjectId(foreignBuildingId), societyId: societyBId, name: 'Foreign' };
+}
+
+function foreignFlat(): FlatRecord {
+  return { ...flat(), _id: new Types.ObjectId(foreignFlatId), societyId: societyBId, buildingId: foreignBuildingId, flatNumber: '999' };
+}
+
 function app(identities: CurrentUserRecord[]) {
-  const buildings = new Map([[buildingId, building()]]);
-  const flats = new Map([[flatId, flat()]]);
+  const buildings = new Map([[buildingId, building()], [foreignBuildingId, foreignBuilding()]]);
+  const flats = new Map([[flatId, flat()], [foreignFlatId, foreignFlat()]]);
+  const filtered = <T extends { societyId: string }>(records: T[], filters: Record<string, string>) => records.filter((record) => !filters.societyId || record.societyId === filters.societyId);
   const repository: PropertyRepository = {
-    async findBuildings() { return [...buildings.values()]; },
+    async findBuildings(filters) { return filtered([...buildings.values()], filters); },
     async findBuildingById(id) { return buildings.get(id) ?? null; },
     async createBuilding(data) { const record = { ...building(), ...data, _id: new Types.ObjectId() } as BuildingRecord; buildings.set(record._id.toString(), record); return record; },
     async updateBuilding(id, data) { const record = buildings.get(id); if (!record) return null; Object.assign(record, data); return record; },
     async updateBuildingStatus(id, status) { const record = buildings.get(id); if (!record) return null; record.status = status; return record; },
-    async findFlats() { return [...flats.values()]; },
+    async findFlats(filters) { return filtered([...flats.values()], filters); },
     async findFlatById(id) { return flats.get(id) ?? null; },
     async createFlat(data) { const record = { ...flat(), ...data, _id: new Types.ObjectId() } as FlatRecord; flats.set(record._id.toString(), record); return record; },
     async updateFlat(id, data) { const record = flats.get(id); if (!record) return null; Object.assign(record, data); return record; },
@@ -76,6 +89,29 @@ afterEach(async () => {
 });
 
 describe('property structure administration', () => {
+  it('uses a partial unique building-code index so omitted codes remain optional', async () => {
+    const { buildingSchema } = await import('../src/modules/property/models/Building.js');
+    const index = buildingSchema.indexes().find(([keys, options]) => keys.societyId === 1 && keys.buildingCode === 1 && options?.unique);
+    expect(index?.[1]).toMatchObject({
+      name: 'uniq_society_building_code_present',
+      unique: true,
+      partialFilterExpression: { buildingCode: { $type: 'string' } },
+    });
+    expect(index?.[1]).not.toHaveProperty('sparse');
+  });
+
+  it('explains when the legacy index blocks an omitted code and keeps coded duplicates actionable', () => {
+    const duplicate = Object.assign(new Error('duplicate key'), { code: 11000, keyPattern: { societyId: 1, buildingCode: 1 } });
+    expect(normalizePropertyError(duplicate, { name: 'Another', status: 'ACTIVE' })).toMatchObject({
+      status: 409,
+      code: 'BUILDING_CODE_INDEX_MIGRATION_REQUIRED',
+    });
+    expect(normalizePropertyError(duplicate, { buildingCode: 'A' })).toMatchObject({
+      status: 409,
+      code: 'BUILDING_CODE_ALREADY_EXISTS',
+    });
+  });
+
   it('allows SYSTEM_ADMIN to create and safely return buildings and flats', async () => {
     const response = await request(app([identity(adminId, 'SYSTEM_ADMIN', null)]), '/buildings', adminId, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -102,5 +138,35 @@ describe('property structure administration', () => {
     });
     expect(response.status).toBe(200);
     expect((await response.json()).data.status).toBe('INACTIVE');
+  });
+
+  it('lets managers read only their assigned society buildings and flats', async () => {
+    const serverApp = app([identity(managerId, 'SOCIETY_MANAGER', societyAId)]);
+    const buildingResponse = await request(serverApp, '/buildings', managerId);
+    const flatResponse = await request(serverApp, '/flats', managerId);
+    expect(buildingResponse.status).toBe(200);
+    expect((await buildingResponse.json()).data.map((item: { societyId: string }) => item.societyId)).toEqual([societyAId]);
+    expect(flatResponse.status).toBe(200);
+    expect((await flatResponse.json()).data.map((item: { societyId: string }) => item.societyId)).toEqual([societyAId]);
+    expect((await request(serverApp, `/flats?societyId=${new Types.ObjectId().toString()}`, managerId)).status).toBe(403);
+    expect((await request(serverApp, `/flats/${foreignFlatId}`, managerId)).status).toBe(403);
+    expect((await request(serverApp, `/buildings/${foreignBuildingId}`, managerId)).status).toBe(403);
+  });
+
+  it('lets a manager create a flat in their assigned society and preserves leading zeroes', async () => {
+    const response = await request(app([identity(managerId, 'SOCIETY_MANAGER', societyAId)]), '/flats', managerId, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ buildingId, flatNumber: '002', status: 'ACTIVE' }),
+    });
+    expect(response.status).toBe(201);
+    expect((await response.json()).data).toMatchObject({ societyId: societyAId, buildingId, flatNumber: '002' });
+  });
+
+  it('rejects caller-supplied cross-society flat creation', async () => {
+    const response = await request(app([identity(managerId, 'SOCIETY_MANAGER', societyAId)]), '/flats', managerId, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ societyId: societyBId, buildingId, flatNumber: '0101', status: 'ACTIVE' }),
+    });
+    expect(response.status).toBe(403);
   });
 });

@@ -2,12 +2,10 @@ import { useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ApiError, completeAccountSetup } from '@/lib/api';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { usePageMotion } from '@/hooks/usePageMotion';
+import { AuthExperience } from '@/components/auth/AuthExperience';
 
 export function AccountSetupPage() {
   const navigate = useNavigate();
-  const pageRef = usePageMotion<HTMLDivElement>();
   const [credential, setCredential] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmation, setConfirmation] = useState('');
@@ -30,33 +28,35 @@ export function AccountSetupPage() {
   }
 
   return (
-    <main ref={pageRef} className="grid min-h-screen place-items-center bg-background px-4 py-10">
-      <Card className="motion-item w-full max-w-md shadow-[8px_8px_0_var(--accent)]">
-        <CardHeader><CardTitle>Set up your Nivaas account</CardTitle></CardHeader>
-        <CardContent>
+    <AuthExperience>
+      <section className="login-form-column min-w-0" aria-labelledby="setup-form-title" data-auth-enter>
+        <div className="login-form-surface">
+          <p className="login-form-overline text-xs font-semibold uppercase tracking-[.14em] text-secondary">Account setup</p>
+          <h2 id="setup-form-title" className="mt-2 font-headline text-2xl font-bold tracking-tight text-foreground">Set up your Nivaas account</h2>
+          <p className="mt-2 text-sm leading-6 text-muted-foreground">Use your setup credential to set a password for this account.</p>
           {complete ? (
-            <div className="space-y-4" role="status">
+            <div className="mt-7 space-y-4" role="status">
               <p className="text-sm leading-6">Your account is ready. Sign in with your new password.</p>
               <Button onClick={() => navigate('/login', { replace: true })}>Continue to sign in</Button>
             </div>
           ) : (
-            <form className="space-y-5" onSubmit={submit}>
-              {error ? <p className="rounded-md border border-danger/40 bg-danger/10 p-3 text-sm leading-6 text-danger" role="alert">{error}</p> : null}
-              <label className="block text-sm font-semibold" htmlFor="credential">Setup credential
-                <input id="credential" required value={credential} onChange={(event) => setCredential(event.target.value)} className="mt-2 min-h-11 w-full rounded-md border border-input bg-background px-3 font-mono text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+            <form className="mt-7 space-y-5" onSubmit={submit}>
+              {error ? <p className="login-error text-sm leading-6 text-danger" role="alert">{error}</p> : null}
+              <label className="login-field-label block text-sm font-semibold" htmlFor="credential">Setup credential
+                <input id="credential" required value={credential} onChange={(event) => setCredential(event.target.value)} className="login-field mt-2 min-h-12 w-full rounded-md border border-input bg-background px-3 font-mono text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring" />
               </label>
-              <label className="block text-sm font-semibold" htmlFor="new-password">New password
-                <input id="new-password" type="password" minLength={8} autoComplete="new-password" required value={newPassword} onChange={(event) => setNewPassword(event.target.value)} className="mt-2 min-h-11 w-full rounded-md border border-input bg-background px-3 outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+              <label className="login-field-label block text-sm font-semibold" htmlFor="new-password">New password
+                <input id="new-password" type="password" minLength={8} autoComplete="new-password" required value={newPassword} onChange={(event) => setNewPassword(event.target.value)} className="login-field mt-2 min-h-12 w-full rounded-md border border-input bg-background px-3 outline-none focus-visible:ring-2 focus-visible:ring-ring" />
               </label>
-              <label className="block text-sm font-semibold" htmlFor="confirm-password">Confirm password
-                <input id="confirm-password" type="password" minLength={8} autoComplete="new-password" required value={confirmation} onChange={(event) => setConfirmation(event.target.value)} className="mt-2 min-h-11 w-full rounded-md border border-input bg-background px-3 outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+              <label className="login-field-label block text-sm font-semibold" htmlFor="confirm-password">Confirm password
+                <input id="confirm-password" type="password" minLength={8} autoComplete="new-password" required value={confirmation} onChange={(event) => setConfirmation(event.target.value)} className="login-field mt-2 min-h-12 w-full rounded-md border border-input bg-background px-3 outline-none focus-visible:ring-2 focus-visible:ring-ring" />
               </label>
-              <Button type="submit" className="w-full">Complete setup</Button>
+              <Button type="submit" className="login-submit w-full bg-primary text-primary-foreground hover:bg-primary/90">Complete setup</Button>
               <Link className="block text-center text-sm font-semibold text-info underline underline-offset-4" to="/login">Back to sign in</Link>
             </form>
           )}
-        </CardContent>
-      </Card>
-    </main>
+        </div>
+      </section>
+    </AuthExperience>
   );
 }

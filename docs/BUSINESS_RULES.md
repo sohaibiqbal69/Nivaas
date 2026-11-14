@@ -1,6 +1,6 @@
 # Business Rules Specification
 
-**Version:** 1.9 
+**Version:** 1.11 
 **Status:** Active — Planning Baseline
 **Planning Document** --- Revised Governance, Voting & Approval Rules 
 **Project:** Blockchain-Based Apartment Society Governance System
@@ -151,6 +151,18 @@ ownership, residence/occupancy, society membership, committee membership,
 and governance/voting eligibility. Account status values and permitted
 lifecycle transitions are defined in the User Account Status Policy below.
 
+A Society Manager may create pending `OWNER_MEMBER`, `RESIDENT`, and
+`COMMITTEE_MEMBER` accounts only for the manager's persisted active society.
+This does not permit platform-wide account management, assignment of
+`SYSTEM_ADMIN` or another `SOCIETY_MANAGER`, or reassignment of an account
+from another society. The same one-time setup credential rules apply. In the
+current local MVP, manager-created accounts are available only when the
+isolated loopback setup-delivery configuration is enabled; no production
+credential-delivery provider is implemented, so the backend rejects account
+creation before persistence when that secure delivery path is unavailable.
+Creating an application role does not create a Membership, Ownership,
+Residence, CommitteeMember, or governance-eligibility record.
+
 Password requirements beyond the 8-character minimum, the setup-credential
 hash algorithm, forgot-password behavior, and credential retention/cleanup
 remain unspecified. Audit requirements for setup are limited to the
@@ -290,6 +302,10 @@ the society system. The Society Manager may:
 - Record invoices
 - Submit projects for approval
 - Manage vendors
+- Onboard pending owner, resident, and committee-member accounts within the
+  manager's own active society, subject to the secure account-setup flow
+- Create separate membership, ownership, and residence records through the
+  authorized society APIs
 - Record authorized operational activities
 
 The Society Manager cannot bypass governance requirements. Example:
@@ -356,6 +372,23 @@ Owner Members are the primary society governance participants. Owners may:
 - View public audit history
 
 Voting eligibility must follow the society's confirmed governance rules.
+
+For the current MVP's read-only transparency APIs, `OWNER_MEMBER` access to
+projects, quotations, vendor comparison labels, approval records, approved
+budgets, public audit events, and proof status requires a persisted, currently
+active Ownership relationship for the same society. Ownership is checked
+independently of Residence and Membership. An owner who has ended residence
+or tenancy but retains active ownership keeps this read access; ending
+Ownership (or its effective date range) revokes it. Application role alone is
+insufficient, and this read access grants no operational write permission.
+
+Residents may view published notices, use the supported complaint workflow,
+and discover project summaries. A resident/tenant does not receive quotations,
+vendor details, financial records, audit history, or proof access from
+occupancy or application role alone. Expanding that visibility requires an
+explicit product decision. Voting eligibility remains governed by separate
+Membership and governance-evidence rules; neither Ownership nor Residence is
+sufficient by itself.
 
 ---
 
@@ -1034,12 +1067,77 @@ The requisition record must preserve:
 
 For the ordinary general-body prototype, the initial quorum configuration is:
 
-**two-thirds of total members or 20 members, whichever is less.**
+**two-thirds of the configured society-member population or 20 members,
+whichever is less.** The configured population and integer rounding method
+must be stored in the versioned rule policy. Nivaas's current starter selects
+active primary members with valid membership records; it uses the eligible
+snapshot as the denominator and rounds upward. These are configurable product
+defaults, not a claim that every society's registered rules use this exact
+population or formula.
 
 Quorum must be calculated from the applicable membership population, not from
 the number of flats or residents.
 
-The quorum rule must be configurable and versioned.
+For the current ordinary general-body starter, a simple majority means YES
+votes strictly greater than NO votes. Abstentions count toward attendance and
+quorum but are excluded from the YES/NO comparison. A tie or unmet quorum
+produces `NO_DECISION`; a chairperson casting vote is not enabled unless an
+approved procedure is configured and recorded.
+
+These are configurable Nivaas product defaults, not a claim of legal
+compliance. Maharashtra Co-operative Societies Rules, 1961, Rule 60 describes
+quorum as specified in the society's bye-laws and a majority-of-members-present
+and President casting-vote procedure, subject to the Act, Rules, and bye-laws.
+The product workflow must not be used as a real-society legal decision process
+until the current applicable rules and that society's registered bye-laws are
+verified against its configured policy.
+
+The quorum and majority rules must be configurable and versioned. Committee
+and special-resolution formulas remain separately unresolved.
+
+### Offline recorded general-body decisions — MVP product assumption
+
+For this milestone, general-body meeting decisions may be recorded after an
+in-person meeting. Nivaas does not collect live ballots. The authenticated
+Society Manager is the MVP confirming operator; this records who entered and
+confirmed the result and does not establish legal authority. Attendance is
+validated against the resolution's immutable eligible-member snapshot. The
+record stores attendance member IDs, the method, aggregate YES/NO/ABSTAIN
+counts, minutes reference, supporting-evidence references, confirmation actor
+and time, and the exact policy snapshot. Recorded vote counts cannot exceed attendance; present members who do not cast a vote remain included in the quorum attendance count.
+Unanimity is represented as YES equal to attendance and NO/ABSTAIN equal to
+zero; attendance and counts remain recorded.
+
+An offline result can approve a project only when the configured meeting
+quorum is met, the configured majority produces APPROVED, the meeting and
+rule-version/project/quotation context match, and the authenticated operator
+confirms the complete record. Insufficient quorum yields NO_DECISION and
+leaves the project pending. The recorded evidence is immutable. This is an
+MVP product workflow, not a legal guarantee. Notice periods, eligible-member
+rules, quorum, majority, chair procedure, officer authority, and admissible
+minutes/evidence must be verified against the exact applicable 2026 Gazette
+text and the society's registered bye-laws before real use.
+
+### Committee project decisions — MVP product assumption
+
+For a project routed to the committee by the effective configured approval
+policy, a current active CommitteeMember appointment and active same-society
+User account are both required. Each member may record one immutable
+APPROVE or REJECT decision per ApprovalDecision/proposal revision. The record
+includes the member, timestamp, rationale when supplied, committee, proposal
+revision and applicable rule snapshot. Ownership, residence, formal
+membership and application role do not establish committee appointment.
+
+The initial configurable product defaults are quorum of two-thirds of the
+active committee (rounded up) and approval by strictly more than half of
+decisions cast. Quorum and majority are separate checks. Ties or a result that
+does not meet the configured majority do not approve. A Society Manager may
+finalize only after quorum and an unambiguous configured outcome; this
+operator action cannot manufacture member decisions. These are MVP product
+assumptions, not statutory thresholds or legal authority. Committee powers,
+appointment evidence, decision categories, budget routing, majority and
+quorum require confirmation from current applicable law and registered
+bye-laws.
 
 ## BR-MEETING-007 — Adjourned Meeting
 
@@ -1676,7 +1774,7 @@ These are not mandatory for the initial implementation.
 The following remain configurable or require confirmation for the final
 prototype/legal configuration:
 
-1. Exact committee decision majority rule.
+1. Society-specific committee decision thresholds, category authority, and statutory procedures beyond the configurable MVP product assumptions.
 2. Exact majority formula for each special general-body resolution type.
 3. Special-purpose quorum rules that differ from ordinary general-body
    meetings.
@@ -1774,7 +1872,7 @@ Quotation Revision?
 
 # 66. BUSINESS RULE STATUS
 
-**Current status:** Planning baseline, revised to v1.9.
+**Current status:** Planning baseline, revised to v1.10.
 
 This version separates membership, ownership, residence and governance
 eligibility; establishes the platform-wide technical scope of
@@ -1786,3 +1884,43 @@ support it; and preserves historical decision integrity.
 
 Any future business-rule change must first be documented here before being
 implemented in code.
+
+---
+
+# Implementation note: project lifecycle and expense MVP
+
+The current implementation extends the project, evidence, and expense baseline
+without resolving legal or society-specific policy questions:
+
+- Only a Society Manager can start an approved project, add progress or
+  completion records, upload project photos, record expenses, or complete the
+  project. This is the current product/API authorization, not a statement of
+  statutory authority. Committee completion confirmation remains TBC.
+- Completion requires an immutable completion description, an invoice
+  reference, a private after-photo, and a final cost no greater than the
+  approved project amount and no lower than recorded expenses. Invoice-file
+  upload, payment reconciliation, and a completion confirmation route are not
+  implemented.
+- A project expense must reference an approved project, its approved budget,
+  and a category in that budget. The amount must fit both the approved project
+  amount remaining and budget-category allocation remaining. Expense history
+  is append-only and category/budget totals update transactionally with its
+  audit event.
+- The backend blocks an expense that would exceed either cap. A project amount
+  increase must use the existing quotation change-request and re-approval
+  workflow. The annual budget/category amendment approval route remains TBC;
+  until an authorized amendment is represented in the system, the expense is
+  not recorded. No threshold or overrun authority is inferred here.
+- Owners with a currently effective same-society Ownership record can see
+  public project-progress and financial summaries. They cannot create project
+  updates or expenses. Residence alone does not grant these reads. Private
+  invoice references and update actor identity are withheld from owners;
+  private photo downloads follow the existing evidence authorization rules.
+- Audit events remain in the existing immutable AuditLog. These project and
+  expense records do not trigger blockchain proofs; no sensitive project
+  evidence or personal information is put on-chain.
+
+These are implementation boundaries and product assumptions, not legal
+guarantees. The applicable 2026 Gazette wording and registered society
+bye-laws, financial visibility policy, budget-overrun approval process, and
+completion authority must be confirmed before enabling broader policies.

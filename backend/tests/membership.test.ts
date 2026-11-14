@@ -147,12 +147,33 @@ describe('Membership administration', () => {
     expect(state.audits.map((audit) => audit.action)).toEqual(['MEMBERSHIP_CREATED', 'MEMBERSHIP_STATUS_CHANGED']);
   });
 
-  it('rejects unauthorized and cross-society administration', async () => {
-    const state = createApp([currentUser(managerId, societyAId, 'SOCIETY_MANAGER')], [membership()]);
+  it('rejects invalid manager input and cross-society record access', async () => {
+    const state = createApp([currentUser(managerId, societyAId, 'SOCIETY_MANAGER')], [membership(membershipId, societyBId, unitBId)]);
     const response = await request(state.app, '/api/memberships', managerId, { method: 'POST' });
-    expect(response.status).toBe(403);
+    expect(response.status).toBe(400);
     const crossSociety = await request(state.app, `/api/memberships/${membershipId}`, managerId);
     expect(crossSociety.status).toBe(403);
+  });
+
+  it('lets a manager add and list memberships only in their assigned society', async () => {
+    const state = createApp([currentUser(managerId, societyAId, 'SOCIETY_MANAGER')]);
+    const created = await request(state.app, '/api/memberships', managerId, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ societyId: societyAId, userId: memberId, unitId: unitAId, membershipType: 'PRIMARY', membershipStatus: 'ACTIVE' }),
+    });
+    expect(created.status).toBe(201);
+    expect((await request(state.app, '/api/memberships?societyId=' + societyAId, managerId)).status).toBe(200);
+    expect((await request(state.app, '/api/memberships?societyId=' + societyBId, managerId)).status).toBe(403);
+
+    const self = createApp([currentUser(managerId, societyAId, 'SOCIETY_MANAGER')]);
+    const selfMembership = await request(self.app, '/api/memberships', managerId, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ societyId: societyAId, userId: managerId, unitId: unitAId, membershipType: 'PRIMARY', membershipStatus: 'ACTIVE' }),
+    });
+    expect(selfMembership.status).toBe(403);
+
+    const foreign = createApp([currentUser(managerId, societyAId, 'SOCIETY_MANAGER')], [membership(membershipId, societyBId, unitBId)]);
+    expect((await request(foreign.app, `/api/memberships/${membershipId}`, managerId)).status).toBe(403);
   });
 
   it('rejects invalid references, invalid type/status, inconsistent unit, and duplicates', async () => {

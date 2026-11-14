@@ -9,6 +9,8 @@ import { ApprovalDecision } from '../approval/models/ApprovalDecision.js';
 import { Project } from '../project/models/Project.js';
 import { ChangeRequest } from './models/ChangeRequest.js';
 import { Quotation } from './models/Quotation.js';
+import { Vendor } from '../vendor/models/Vendor.js';
+import { assertOwnerSocietyAccess } from '../property/owner-society-access.js';
 
 const quotationFields = '_id projectId vendorId versionNumber amount description documentEvidenceId status previousQuotationId supersededAt submittedBy submittedAt createdAt updatedAt';
 const changeRequestFields = '_id projectId quotationId originalAmount additionalAmount newAmount reason supportingEvidenceIds requestedBy status requiredApprovalType approvalMeetingId approvalDecisionId resultingQuotationId createdAt updatedAt';
@@ -54,15 +56,11 @@ export function createQuotationRouter(
   loadAuthenticatedUser = loadCurrentUser,
 ): Router {
   const router = Router();
-  const authorized = [
-    authenticateRequest,
-    loadAuthenticatedUser,
-    requireRoles('SYSTEM_ADMIN', 'SOCIETY_MANAGER', 'COMMITTEE_MEMBER'),
-  ] as const;
+  const managerOnly = [authenticateRequest, loadAuthenticatedUser, requireRoles('SOCIETY_MANAGER')] as const;
   const readable = [
     authenticateRequest,
     loadAuthenticatedUser,
-    requireRoles('SYSTEM_ADMIN', 'SOCIETY_MANAGER', 'COMMITTEE_MEMBER', 'OWNER_MEMBER', 'RESIDENT'),
+    requireRoles('SYSTEM_ADMIN', 'SOCIETY_MANAGER', 'COMMITTEE_MEMBER', 'OWNER_MEMBER'),
   ] as const;
 
   router.get('/projects/:projectId/quotations', ...readable, async (request, response, next) => {
@@ -87,7 +85,7 @@ export function createQuotationRouter(
     }
   });
 
-  router.post('/projects/:projectId/quotations', ...authorized, async (request, response, next) => {
+  router.post('/projects/:projectId/quotations', ...managerOnly, async (request, response, next) => {
     try {
       const user = currentUser(request);
       const project = await findProject(request.params.projectId, user);
@@ -100,6 +98,8 @@ export function createQuotationRouter(
       try {
         let created: QuotationRecord | null = null;
         await session.withTransaction(async () => {
+          const vendorExists = await Vendor.exists({ _id: data.vendorId, societyId: project.societyId, status: 'ACTIVE' }).session(session);
+          if (!vendorExists) throw validation('vendorId must refer to an active vendor in this project’s society.');
           const latest = await Quotation.findOne({ projectId: project._id }).sort({ versionNumber: -1 }).session(session).lean().exec();
           if (latest) throw validation('Use a quotation change request to create a revision of an existing quotation.');
           const [quotation] = await Quotation.create([{
@@ -122,7 +122,7 @@ export function createQuotationRouter(
     }
   });
 
-  router.post('/quotations/:id/select', ...authorized, async (request, response, next) => {
+  router.post('/quotations/:id/select', ...managerOnly, async (request, response, next) => {
     try {
       const user = currentUser(request);
       const quotation = await findQuotation(request.params.id, user);
@@ -222,7 +222,7 @@ export function createQuotationRouter(
     }
   });
 
-  router.patch('/quotations/:id', ...authorized, async (request, response, next) => {
+  router.patch('/quotations/:id', ...managerOnly, async (request, response, next) => {
     try {
       const user = currentUser(request);
       const quotation = await findQuotation(request.params.id, user);
@@ -236,13 +236,17 @@ export function createQuotationRouter(
           const currentQuotation = await Quotation.findOne({ _id: quotation._id, status: 'DRAFT' })
             .select(quotationFields).session(session).lean().exec() as unknown as QuotationRecord | null;
           if (!currentQuotation) return;
+          const project = await findProject(quotation.projectId.toString(), user, session);
+          if (!project) throw notFound();
+          if (update.vendorId !== undefined) {
+            const vendorExists = await Vendor.exists({ _id: update.vendorId, societyId: project.societyId, status: 'ACTIVE' }).session(session);
+            if (!vendorExists) throw validation('vendorId must refer to an active vendor in this project’s society.');
+          }
           const result = await Quotation.findOneAndUpdate({ _id: quotation._id, status: 'DRAFT' }, update, {
             new: true, runValidators: true, session,
           }).select(quotationFields).lean().exec();
           if (!result) return;
           updated = result as unknown as QuotationRecord;
-          const project = await findProject(quotation.projectId.toString(), user, session);
-          if (!project) throw notFound();
           await writeAudit('QUOTATION_UPDATED', project, updated, user.userId, quotationState(currentQuotation), quotationState(updated), session);
         });
         if (!updated) throw notFound();
@@ -267,7 +271,7 @@ export function createQuotationRouter(
     }
   });
 
-  router.post('/quotations/:quotationId/change-requests', ...authorized, async (request, response, next) => {
+  router.post('/quotations/:quotationId/change-requests', ...managerOnly, async (request, response, next) => {
     try {
       const user = currentUser(request);
       const quotation = await findQuotation(request.params.quotationId, user);
@@ -324,7 +328,7 @@ export function createQuotationRouter(
     }
   });
 
-  router.post('/change-requests/:id/submit', ...authorized, async (request, response, next) => {
+  router.post('/change-requests/:id/submit', ...managerOnly, async (request, response, next) => {
     try {
       const user = currentUser(request);
       const record = await ChangeRequest.findById(objectId(request.params.id, 'changeRequestId')).lean().exec() as unknown as ChangeRequestRecord | null;
@@ -390,15 +394,17 @@ type ProjectReference = { _id: { toString(): string }; societyId: { toString(): 
 async function findProject(id: unknown, user: CurrentUserContext, session?: mongoose.ClientSession): Promise<ProjectReference | null> {
   const query: Record<string, unknown> = { _id: objectId(id, 'projectId') };
   if (user.role !== 'SYSTEM_ADMIN') query.societyId = user.societyId;
-  return Project.findOne(query).select('_id societyId status currentQuotationId')
-    .session(session ?? null).lean().exec() as unknown as Promise<ProjectReference | null>;
+  const project = await Project.findOne(query).select('_id societyId status currentQuotationId')
+    .session(session ?? null).lean().exec() as unknown as ProjectReference | null;
+  if (project) await assertOwnerSocietyAccess(user, project.societyId.toString());
+  return project;
 }
 async function findQuotation(id: unknown, user: CurrentUserContext): Promise<QuotationRecord | null> {
   const quotation = await Quotation.findById(objectId(id, 'quotationId')).select(quotationFields).lean().exec() as unknown as QuotationRecord | null;
   if (!quotation) return null;
   return (await findProject(quotation.projectId.toString(), user)) ? quotation : null;
 }
-function validateQuotationBody(value: unknown, partial: boolean): Record<string, unknown> {
+export function validateQuotationBody(value: unknown, partial: boolean): Record<string, unknown> {
   const body = objectBody(value);
   const allowed = new Set(['vendorId', 'amount', 'description', 'documentEvidenceId']);
   if (Object.keys(body).some((key) => !allowed.has(key))) throw validation('Unsupported quotation fields.');

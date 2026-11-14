@@ -2,13 +2,13 @@ import { cva, type VariantProps } from 'class-variance-authority';
 import type { HTMLAttributes } from 'react';
 import { cn } from '@/lib/utils';
 
-const badgeStyles = cva('inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold leading-none', {
+const badgeStyles = cva('inline-flex items-center gap-1.5 rounded-none border-0 border-l-2 px-2 py-1 text-xs font-semibold leading-none transition-[color,border-color,background-color] duration-200 motion-reduce:transition-none', {
   variants: {
     variant: {
-      neutral: 'border-border bg-background text-foreground',
-      info: 'border-info/30 bg-info/10 text-info',
-      success: 'border-success/30 bg-success/10 text-success',
-      warning: 'border-warning/30 bg-warning/10 text-warning',
+      neutral: 'border-l-neutral bg-transparent text-foreground',
+      info: 'border-l-info bg-transparent text-info',
+      success: 'border-l-success bg-transparent text-success',
+      warning: 'border-l-warning bg-transparent text-warning',
     },
   },
   defaultVariants: { variant: 'neutral' },

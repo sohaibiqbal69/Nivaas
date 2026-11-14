@@ -166,12 +166,14 @@ export function createMembershipsRouter(
   loadAuthenticatedUser = loadCurrentUser,
 ): Router {
   const router = Router();
-  const adminOnly = [authenticateRequest, loadAuthenticatedUser, requireRoles('SYSTEM_ADMIN')] as const;
+  const adminOrManager = [authenticateRequest, loadAuthenticatedUser, requireRoles('SYSTEM_ADMIN', 'SOCIETY_MANAGER')] as const;
 
-  router.post('/', ...adminOnly, async (request, response, next) => {
+  router.post('/', ...adminOrManager, async (request, response, next) => {
     try {
       const actor = requireCurrentUser(request);
-      const data = validateCreateRequest(request.body);
+      if (actor.role === 'SOCIETY_MANAGER' && !actor.societyId) throw forbidden();
+      const data = validateCreateRequest(request.body, actor.role === 'SOCIETY_MANAGER' ? actor.societyId : undefined);
+      if (actor.role === 'SOCIETY_MANAGER' && data.userId === actor.userId) throw forbidden();
       const membership = await repository.createWithAudit(data, actor.userId);
       response.status(201).json({ success: true, data: serializeMembership(membership) });
     } catch (error) {
@@ -179,9 +181,15 @@ export function createMembershipsRouter(
     }
   });
 
-  router.get('/', ...adminOnly, async (request, response, next) => {
+  router.get('/', ...adminOrManager, async (request, response, next) => {
     try {
       const filters = validateFilters(request.query);
+      const actor = requireCurrentUser(request);
+      if (actor.role === 'SOCIETY_MANAGER') {
+        if (!actor.societyId) throw forbidden();
+        if (filters.societyId && filters.societyId !== actor.societyId) throw forbidden();
+        filters.societyId = actor.societyId;
+      }
       const memberships = await repository.findAll(filters);
       response.status(200).json({ success: true, data: memberships.map(serializeMembership) });
     } catch (error) {
@@ -189,21 +197,27 @@ export function createMembershipsRouter(
     }
   });
 
-  router.get('/:id', ...adminOnly, async (request, response, next) => {
+  router.get('/:id', ...adminOrManager, async (request, response, next) => {
     try {
       const membership = await repository.findById(parseId(request.params.id));
       if (!membership) throw notFound();
+      assertManagerScope(request, membership.societyId.toString());
       response.status(200).json({ success: true, data: serializeMembership(membership) });
     } catch (error) {
       next(error);
     }
   });
 
-  router.patch('/:id/status', ...adminOnly, async (request, response, next) => {
+  router.patch('/:id/status', ...adminOrManager, async (request, response, next) => {
     try {
       const actor = requireCurrentUser(request);
       const status = validateStatusRequest(request.body);
-      const membership = await repository.updateStatusWithAudit(parseId(request.params.id), status, actor.userId);
+      const id = parseId(request.params.id);
+      const existing = await repository.findById(id);
+      if (!existing) throw notFound();
+      assertManagerScope(request, existing.societyId.toString());
+      if (actor.role === 'SOCIETY_MANAGER' && existing.userId.toString() === actor.userId) throw forbidden();
+      const membership = await repository.updateStatusWithAudit(id, status, actor.userId);
       if (!membership) throw notFound();
       response.status(200).json({ success: true, data: serializeMembership(membership) });
     } catch (error) {
@@ -211,11 +225,16 @@ export function createMembershipsRouter(
     }
   });
 
-  router.patch('/:id', ...adminOnly, async (request, response, next) => {
+  router.patch('/:id', ...adminOrManager, async (request, response, next) => {
     try {
       const actor = requireCurrentUser(request);
       const update = validateUpdateRequest(request.body);
-      const membership = await repository.updateWithAudit(parseId(request.params.id), update, actor.userId);
+      const id = parseId(request.params.id);
+      const existing = await repository.findById(id);
+      if (!existing) throw notFound();
+      assertManagerScope(request, existing.societyId.toString());
+      if (actor.role === 'SOCIETY_MANAGER' && existing.userId.toString() === actor.userId) throw forbidden();
+      const membership = await repository.updateWithAudit(id, update, actor.userId);
       if (!membership) throw notFound();
       response.status(200).json({ success: true, data: serializeMembership(membership) });
     } catch (error) {
@@ -229,11 +248,15 @@ export function createMembershipsRouter(
 async function validateReferences(societyId: string, userId: string, unitId: string, session: mongoose.ClientSession): Promise<void> {
   const [society, user, unit] = await Promise.all([
     Society.findById(societyId).session(session).select('_id').lean().exec(),
-    User.findById(userId).session(session).select('_id').lean().exec(),
+    User.findById(userId).session(session).select('_id societyId role').lean().exec(),
     Flat.findById(unitId).session(session).select('_id societyId').lean().exec(),
   ]);
   if (!society) throw new ApiError(400, 'VALIDATION_ERROR', 'The society does not exist.');
   if (!user) throw new ApiError(400, 'VALIDATION_ERROR', 'The user does not exist.');
+  const scopedUser = user as unknown as { societyId: { toString(): string } | null; role: string };
+  if (scopedUser.role === 'SYSTEM_ADMIN' || scopedUser.societyId?.toString() !== societyId) {
+    throw new ApiError(400, 'VALIDATION_ERROR', 'The user must be assigned to the same society before membership can be recorded.');
+  }
   if (!unit) throw new ApiError(400, 'VALIDATION_ERROR', 'The unit does not exist.');
   const unitSocietyId = (unit as unknown as { societyId: { toString(): string } }).societyId;
   if (!unitSocietyId || unitSocietyId.toString() !== societyId) {
@@ -270,11 +293,13 @@ function parseId(value: string | string[] | undefined): string {
   return new Types.ObjectId(value).toString();
 }
 
-function validateCreateRequest(value: unknown): MembershipWriteData {
+function validateCreateRequest(value: unknown, managerSocietyId?: string | null): MembershipWriteData {
   const body = validateObject(value);
   const allowed = new Set(['societyId', 'userId', 'unitId', 'membershipType', 'membershipStatus', 'membershipNumber', 'primaryMemberOrder', 'associatedFlatIds', 'validFrom', 'validTo']);
   if (Object.keys(body).some((key) => !allowed.has(key))) throw new ApiError(400, 'VALIDATION_ERROR', 'The request contains unsupported membership fields.');
-  const societyId = validateObjectId(body.societyId, 'societyId');
+  const requestedSocietyId = body.societyId === undefined && managerSocietyId ? managerSocietyId : validateObjectId(body.societyId, 'societyId');
+  if (managerSocietyId && requestedSocietyId !== managerSocietyId) throw forbidden();
+  const societyId = requestedSocietyId;
   const userId = validateObjectId(body.userId, 'userId');
   const unitId = validateObjectId(body.unitId, 'unitId');
   const membershipType = validateType(body.membershipType);
@@ -360,6 +385,14 @@ function validateObject(value: unknown): Record<string, unknown> {
 
 function notFound(): ApiError {
   return new ApiError(404, 'NOT_FOUND', 'The requested API resource was not found.');
+}
+
+function forbidden(): ApiError {
+  return new ApiError(403, 'FORBIDDEN', 'You do not have permission to access this society record.');
+}
+
+function assertManagerScope(request: Request, societyId: string): void {
+  if (request.currentUser?.role === 'SOCIETY_MANAGER' && request.currentUser.societyId !== societyId) throw forbidden();
 }
 
 function normalizeError(error: unknown): unknown {

@@ -30,6 +30,7 @@ export type RelationshipRecord = {
 };
 
 type RelationshipRepository = {
+  findFlatSocietyId(flatId: string): Promise<string | null>;
   findByFlat(type: Relationship, flatId: string): Promise<RelationshipRecord[] | null>;
   create(type: Relationship, flatId: string, data: Record<string, unknown>, actorId: string): Promise<RelationshipRecord>;
   update(type: Relationship, id: string, data: Record<string, unknown>, actorId: string): Promise<RelationshipRecord | null>;
@@ -39,6 +40,10 @@ const ownershipFields = '_id societyId flatId userId ownershipType ownershipOrde
 const residenceFields = '_id societyId flatId userId occupancyType status startDate endDate createdAt updatedAt';
 
 const repository: RelationshipRepository = {
+  async findFlatSocietyId(flatId) {
+    const flat = await Flat.findById(flatId).select('societyId').lean().exec() as unknown as { societyId: { toString(): string } } | null;
+    return flat?.societyId.toString() ?? null;
+  },
   async findByFlat(type, flatId) {
     const Model = type === 'ownership' ? Ownership : Residence;
     const fields = type === 'ownership' ? ownershipFields : residenceFields;
@@ -53,11 +58,15 @@ const repository: RelationshipRepository = {
       await session.withTransaction(async () => {
         const [flatResult, user] = await Promise.all([
           Flat.findById(flatId).session(session).select('_id societyId').lean().exec(),
-          User.findById(data.userId).session(session).select('_id').lean().exec(),
+          User.findById(data.userId).session(session).select('_id societyId role').lean().exec(),
         ]);
         const flat = flatResult as unknown as { societyId: { toString(): string } } | null;
         if (!flat) throw new ApiError(400, 'VALIDATION_ERROR', 'The flat does not exist.');
         if (!user) throw new ApiError(400, 'VALIDATION_ERROR', 'The user does not exist.');
+        const scopedUser = user as unknown as { societyId: { toString(): string } | null; role: string };
+        if (scopedUser.role === 'SYSTEM_ADMIN' || scopedUser.societyId?.toString() !== flat.societyId.toString()) {
+          throw new ApiError(400, 'VALIDATION_ERROR', 'The user must be assigned to the flat society before recording this relationship.');
+        }
         if (data.societyId && String(data.societyId) !== flat.societyId.toString()) {
           throw new ApiError(400, 'VALIDATION_ERROR', 'The relationship does not belong to the flat society.');
         }
@@ -109,20 +118,21 @@ export function createOwnershipResidenceRouter(
 ): Router {
   const router = Router();
   const adminOnly = [authenticateRequest, loadAuthenticatedUser, requireRoles('SYSTEM_ADMIN')] as const;
+  const adminOrManager = [authenticateRequest, loadAuthenticatedUser, requireRoles('SYSTEM_ADMIN', 'SOCIETY_MANAGER')] as const;
 
-  router.get('/flats/:flatId/ownerships', ...adminOnly, async (request, response, next) => {
+  router.get('/flats/:flatId/ownerships', ...adminOrManager, async (request, response, next) => {
     await listRelationships('ownership', request, response, next, relationshipRepository);
   });
-  router.post('/flats/:flatId/ownerships', ...adminOnly, async (request, response, next) => {
+  router.post('/flats/:flatId/ownerships', ...adminOrManager, async (request, response, next) => {
     await createRelationship('ownership', request, response, next, relationshipRepository);
   });
   router.patch('/ownerships/:id', ...adminOnly, async (request, response, next) => {
     await updateRelationship('ownership', request, response, next, relationshipRepository);
   });
-  router.get('/flats/:flatId/residents', ...adminOnly, async (request, response, next) => {
+  router.get('/flats/:flatId/residents', ...adminOrManager, async (request, response, next) => {
     await listRelationships('residence', request, response, next, relationshipRepository);
   });
-  router.post('/flats/:flatId/residents', ...adminOnly, async (request, response, next) => {
+  router.post('/flats/:flatId/residents', ...adminOrManager, async (request, response, next) => {
     await createRelationship('residence', request, response, next, relationshipRepository);
   });
   router.patch('/residences/:id', ...adminOnly, async (request, response, next) => {
@@ -134,6 +144,7 @@ export function createOwnershipResidenceRouter(
 async function listRelationships(type: Relationship, request: Request, response: Response, next: NextFunction, repository: RelationshipRepository): Promise<void> {
   try {
     const flatId = parseId(request.params.flatId);
+    await assertRelationshipFlatScope(request, flatId, repository);
     const records = await repository.findByFlat(type, flatId);
     if (!records) throw notFound();
     response.status(200).json({ success: true, data: records.map((record) => serialize(record, type)) });
@@ -143,11 +154,20 @@ async function listRelationships(type: Relationship, request: Request, response:
 async function createRelationship(type: Relationship, request: Request, response: Response, next: NextFunction, repository: RelationshipRepository): Promise<void> {
   try {
     const flatId = parseId(request.params.flatId);
+    await assertRelationshipFlatScope(request, flatId, repository);
     const body = validateCreate(request.body, type);
     const actor = requireCurrentUser(request);
+    if (actor.role === 'SOCIETY_MANAGER' && body.userId === actor.userId) throw new ApiError(403, 'FORBIDDEN', 'Managers cannot create flat relationships for their own account.');
     const record = await repository.create(type, flatId, body, actor.userId);
     response.status(201).json({ success: true, data: serialize(record, type) });
   } catch (error) { next(normalizeError(error)); }
+}
+
+async function assertRelationshipFlatScope(request: Request, flatId: string, repository: RelationshipRepository): Promise<void> {
+  const actor = requireCurrentUser(request);
+  if (actor.role !== 'SOCIETY_MANAGER') return;
+  const societyId = await repository.findFlatSocietyId(flatId);
+  if (!societyId || actor.societyId !== societyId) throw new ApiError(403, 'FORBIDDEN', 'You do not have permission to access this society flat.');
 }
 
 async function updateRelationship(type: Relationship, request: Request, response: Response, next: NextFunction, repository: RelationshipRepository): Promise<void> {
@@ -238,7 +258,7 @@ function auditState(value: unknown): Record<string, unknown> {
   return Object.fromEntries(Object.entries(state).filter(([key]) => !['_id', 'createdAt', 'updatedAt', '__v'].includes(key)));
 }
 
-function requireCurrentUser(request: Request): { userId: string } {
+function requireCurrentUser(request: Request) {
   if (!request.currentUser) throw new ApiError(401, 'UNAUTHORIZED', 'Authentication is required.');
   return request.currentUser;
 }

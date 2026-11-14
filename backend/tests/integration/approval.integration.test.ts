@@ -13,6 +13,12 @@ import { Society } from '../../src/modules/society/models/Society.js';
 import { SocietyRuleVersion } from '../../src/modules/society/models/SocietyRuleVersion.js';
 import { createSocietiesRouter } from '../../src/modules/society/society-routes.js';
 import { User } from '../../src/modules/users/models/User.js';
+import { Committee } from '../../src/modules/committee/models/Committee.js';
+import { CommitteeMember } from '../../src/modules/committee/models/CommitteeMember.js';
+import { CommitteeApprovalElectorate } from '../../src/modules/approval/models/CommitteeApprovalElectorate.js';
+import { CommitteeApprovalVote } from '../../src/modules/approval/models/CommitteeApprovalVote.js';
+import { CommitteeApprovalResult } from '../../src/modules/approval/models/CommitteeApprovalResult.js';
+import { Ownership } from '../../src/modules/property/models/Ownership.js';
 import {
   clearIntegrationTestDatabase,
   connectIntegrationTestDatabase,
@@ -28,6 +34,7 @@ const projectA = new Types.ObjectId();
 const projectB = new Types.ObjectId();
 const projectC = new Types.ObjectId();
 const platformAdmin = new Types.ObjectId();
+const ownerA = new Types.ObjectId();
 
 function app() {
   const application = express();
@@ -65,7 +72,9 @@ describe('Approval Engine MongoDB integration', () => {
       { _id: platformAdmin, name: 'Platform Admin', email: `${platformAdmin}@test`, role: 'SYSTEM_ADMIN', status: 'ACTIVE' },
       { _id: managerA, name: 'Manager A', email: `${managerA}@test`, role: 'SOCIETY_MANAGER', status: 'ACTIVE', societyId: societyA },
       { _id: managerB, name: 'Manager B', email: `${managerB}@test`, role: 'SOCIETY_MANAGER', status: 'ACTIVE', societyId: societyB },
+      { _id: ownerA, name: 'Owner A', email: `${ownerA}@test`, role: 'OWNER_MEMBER', status: 'ACTIVE', societyId: societyA },
     ]);
+    await Ownership.create({ societyId: societyA, flatId: new Types.ObjectId(), userId: ownerA, ownershipType: 'PRIMARY', status: 'ACTIVE' });
     await SocietyRuleVersion.create([
       {
         _id: ruleA, societyId: societyA, versionNumber: 1, status: 'ACTIVE',
@@ -112,6 +121,98 @@ describe('Approval Engine MongoDB integration', () => {
     const decision = await ApprovalDecision.findOne({ projectId: projectA }).lean();
     expect(decision?.ruleSnapshot).toMatchObject({ threshold: '100000', versionNumber: 1 });
     expect(await AuditLog.countDocuments({ entityType: 'ApprovalDecision' })).toBe(3);
+
+    const history = await request(application, `/api/projects/${projectA}/approval-history`, managerA);
+    expect(history.status).toBe(200);
+    const historyData = (await history.json()).data;
+    expect(historyData).toMatchObject([{
+      projectId: projectA.toString(), approvalType: 'COMMITTEE_APPROVAL', status: 'REQUIRED',
+    }]);
+    expect(historyData[0].ruleVersionId).toBe(decision?.ruleVersionId.toString());
+    expect((await request(application, `/api/projects/${projectA}/approval-history`, managerB)).status).toBe(404);
+    const ownerDecision = await request(application, `/api/projects/${projectA}/approval`, ownerA);
+    expect(ownerDecision.status).toBe(200);
+    expect((await ownerDecision.json()).data).toMatchObject({ projectId: projectA.toString(), approvalType: 'COMMITTEE_APPROVAL', evaluatedAmount: '100000' });
+    expect((await request(application, `/api/projects/${projectB}/approval`, ownerA)).status).toBe(404);
+  });
+
+  it('records one current committee member decision and finalizes only after quorum and majority', async () => {
+    const application = app();
+    const committeeUser = new Types.ObjectId();
+    const committeeId = new Types.ObjectId();
+    await User.create({ _id: committeeUser, name: 'Committee Member', email: `${committeeUser}@test`, role: 'COMMITTEE_MEMBER', status: 'ACTIVE', societyId: societyA });
+    await Committee.create({ _id: committeeId, societyId: societyA, name: 'Active Committee', status: 'ACTIVE' });
+    await CommitteeMember.create({ committeeId, userId: committeeUser, position: 'Member', status: 'ACTIVE' });
+    const evaluation = await request(application, `/api/projects/${projectA}/submit-for-approval`, managerA, { method: 'POST' });
+    expect(evaluation.status).toBe(201);
+    const pendingForMember = await request(application, '/api/committee-approvals/pending-for-me', committeeUser);
+    expect(pendingForMember.status).toBe(200);
+    expect((await pendingForMember.json()).data).toMatchObject([{ projectId: projectA.toString(), title: 'A', status: 'COMMITTEE_APPROVAL' }]);
+    expect((await request(application, '/api/committee-approvals/pending-for-me', ownerA)).status).toBe(403);
+    expect((await request(application, '/api/committee-approvals/pending-for-me', managerA)).status).toBe(403);
+    const recorded = await request(application, `/api/projects/${projectA}/committee-approval/decisions`, committeeUser, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ decision: 'APPROVE', rationale: 'Within approved budget.' }),
+    });
+    const recordedBody = await recorded.json();
+    expect(recorded.status, JSON.stringify(recordedBody)).toBe(201);
+    expect(recordedBody.data).toMatchObject({ totalCommitteeMembers: 1, participatingMembers: 1, approveCount: 1, quorumRequired: 1, quorumMet: true, outcome: 'APPROVED' });
+    expect((await request(application, '/api/committee-approvals/pending-for-me', committeeUser).then((response) => response.json())).data).toEqual([]);
+    const memberDecision = await CommitteeApprovalVote.findOne({ projectId: projectA }).lean().exec() as Record<string, any> | null;
+    expect(memberDecision).toMatchObject({ voterId: committeeUser, decision: 'APPROVE', rationale: 'Within approved budget.' });
+    expect(memberDecision?.decidedAt).toBeInstanceOf(Date);
+    expect(String(memberDecision?.proposalVersionId)).toBe(String(memberDecision?.approvalDecisionId));
+    expect(await CommitteeApprovalElectorate.countDocuments({ projectId: projectA })).toBe(1);
+    expect(await CommitteeApprovalVote.countDocuments({ projectId: projectA })).toBe(1);
+    expect((await request(application, `/api/projects/${projectA}/committee-approval/decisions`, ownerA, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ decision: 'APPROVE' }),
+    })).status).toBe(403);
+    expect((await request(application, `/api/projects/${projectA}/committee-approval/finalize`, managerB, { method: 'POST' })).status).toBe(404);
+    const duplicate = await request(application, `/api/projects/${projectA}/committee-approval/decisions`, committeeUser, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ decision: 'REJECT' }),
+    });
+    expect(duplicate.status).toBe(409);
+    const finalized = await request(application, `/api/projects/${projectA}/committee-approval/finalize`, managerA, { method: 'POST' });
+    const finalizedBody = await finalized.json();
+    expect(finalized.status, JSON.stringify(finalizedBody)).toBe(200);
+    expect(finalizedBody.data).toMatchObject({ status: 'APPROVED', outcome: 'APPROVED', quorumMet: true });
+    expect(await Project.findById(projectA).select('status approvalStatus approvedCost').lean()).toMatchObject({ status: 'APPROVED', approvalStatus: 'APPROVED', approvedCost: Types.Decimal128.fromString('100000') });
+    expect(await CommitteeApprovalResult.countDocuments({ projectId: projectA, outcome: 'APPROVED' })).toBe(1);
+    expect(await AuditLog.countDocuments({
+      entityType: 'ApprovalDecision', entityId: memberDecision?.approvalDecisionId,
+      action: { $in: ['COMMITTEE_APPROVAL_ELECTORATE_SNAPSHOTTED', 'COMMITTEE_PROJECT_DECISION_RECORDED', 'COMMITTEE_PROJECT_DECISION_FINALIZED'] },
+    })).toBe(3);
+  });
+
+  it('does not finalize below quorum and keeps a tied majority pending', async () => {
+    const application = app();
+    const committeeId = new Types.ObjectId();
+    const members = Array.from({ length: 6 }, () => new Types.ObjectId());
+    await Committee.create({ _id: committeeId, societyId: societyA, name: 'Quorum Committee', status: 'ACTIVE' });
+    await User.create(members.map((id) => ({ _id: id, name: 'Committee Member', email: `${id}@test`, role: 'COMMITTEE_MEMBER', status: 'ACTIVE', societyId: societyA })));
+    await CommitteeMember.create(members.map((userId) => ({ committeeId, userId, position: 'Member', status: 'ACTIVE' })));
+    expect((await request(application, `/api/projects/${projectA}/submit-for-approval`, managerA, { method: 'POST' })).status).toBe(201);
+    const cast = async (userId: Types.ObjectId, decision: 'APPROVE' | 'REJECT') => request(application, `/api/projects/${projectA}/committee-approval/decisions`, userId, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ decision }),
+    });
+    expect((await cast(members[0]!, 'APPROVE')).status).toBe(201);
+    expect((await cast(members[1]!, 'APPROVE')).status).toBe(201);
+    const belowQuorum = await request(application, `/api/projects/${projectA}/committee-approval/finalize`, managerA, { method: 'POST' });
+    expect(belowQuorum.status).toBe(409);
+    expect((await belowQuorum.json()).error.code).toBe('COMMITTEE_QUORUM_NOT_MET');
+    expect((await Project.findById(projectA).select('status').lean())?.status).toBe('COMMITTEE_APPROVAL');
+
+    expect((await cast(members[2]!, 'REJECT')).status).toBe(201);
+    expect((await cast(members[3]!, 'REJECT')).status).toBe(201);
+    const tied = await request(application, `/api/projects/${projectA}/committee-approval/finalize`, managerA, { method: 'POST' });
+    expect(tied.status).toBe(409);
+    expect((await tied.json()).error.code).toBe('COMMITTEE_MAJORITY_NOT_MET');
+    expect((await Project.findById(projectA).select('status').lean())?.status).toBe('COMMITTEE_APPROVAL');
+    expect((await cast(members[4]!, 'REJECT')).status).toBe(201);
+    expect((await cast(members[5]!, 'REJECT')).status).toBe(201);
+    const rejected = await request(application, `/api/projects/${projectA}/committee-approval/finalize`, managerA, { method: 'POST' });
+    expect(rejected.status).toBe(200);
+    expect((await rejected.json()).data).toMatchObject({ status: 'REJECTED', outcome: 'REJECTED', rejectCount: 4, quorumMet: true });
+    expect((await Project.findById(projectA).select('status approvalStatus').lean())).toMatchObject({ status: 'REJECTED', approvalStatus: 'REJECTED' });
   });
 
   it('provisions one active default rule atomically when a society is created', async () => {

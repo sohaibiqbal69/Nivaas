@@ -1,4 +1,5 @@
 import { model, models, Schema, type InferSchemaType } from 'mongoose';
+import { governancePolicyConfigurationSchema } from '../../governance/models/GovernancePolicyConfiguration.js';
 
 const RULE_VERSION_STATUSES = ['DRAFT', 'ACTIVE', 'SUPERSEDED'] as const;
 const ruleConfiguration = { type: Schema.Types.Mixed, immutable: true };
@@ -10,12 +11,18 @@ export const societyRuleVersionSchema = new Schema(
     versionNumber: { type: Number, required: true, min: 1, immutable: true },
     status: { type: String, required: true, enum: RULE_VERSION_STATUSES },
     effectiveFrom: { type: Date, required: true, immutable: true },
-    effectiveTo: { type: Date, immutable: true },
-    approvalPolicy: { ...ruleConfiguration, default: () => ({ threshold: DEFAULT_APPROVAL_THRESHOLD }) },
+    // Closed once when a newer immutable version is activated.
+    effectiveTo: { type: Date },
+    changeReason: { type: String, trim: true, maxlength: 500, immutable: true },
+    supportingDocumentReference: { type: String, trim: true, maxlength: 240, immutable: true },
+    policyChangeAuditLogId: { type: Schema.Types.ObjectId, ref: 'AuditLog', immutable: true },
+    approvalPolicy: { ...ruleConfiguration, default: () => ({ threshold: DEFAULT_APPROVAL_THRESHOLD, committeeApproval: { quorumNumerator: 2, quorumDenominator: 3, majorityNumerator: 1, majorityDenominator: 2, majorityComparison: 'STRICTLY_GREATER' } }) },
     majorityRules: ruleConfiguration,
     quorumRules: ruleConfiguration,
     noticeRules: ruleConfiguration,
     votingRules: ruleConfiguration,
+    // New typed policy envelope. Legacy Mixed fields remain readable for old rule versions.
+    governancePolicy: { type: governancePolicyConfigurationSchema, immutable: true },
     procurementRules: ruleConfiguration,
     financialVisibilityRules: ruleConfiguration,
     complaintRules: ruleConfiguration,

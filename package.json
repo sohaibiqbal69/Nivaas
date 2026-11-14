@@ -14,6 +14,9 @@
     "test:integration": "npm run test:integration --workspace=@nivaas/backend",
     "test:e2e": "playwright test",
     "blockchain:compile": "npm run compile --workspace=@nivaas/blockchain",
+    "dev": "node scripts/dev.mjs start",
+    "dev:stop": "node scripts/dev.mjs stop",
+    "dev:check": "node scripts/dev.mjs check",
     "dev:frontend": "npm run dev --workspace=@nivaas/frontend",
     "dev:backend": "npm run dev --workspace=@nivaas/backend"
   },

@@ -8,6 +8,7 @@ import { AuditLog } from '../audit/models/AuditLog.js';
 import { Society } from '../society/models/Society.js';
 import { Budget } from './models/Budget.js';
 import { BudgetCategory } from './models/BudgetCategory.js';
+import { assertOwnerSocietyAccess } from '../property/owner-society-access.js';
 
 const budgetFields = '_id societyId financialYear title description status totalAllocated totalSpent totalRemaining approvedAt approvedBy createdAt updatedAt';
 const categoryFields = '_id budgetId name description allocatedAmount spentAmount remainingAmount createdAt updatedAt';
@@ -51,8 +52,13 @@ export function createBudgetsRouter(
     loadAuthenticatedUser,
     requireRoles('SYSTEM_ADMIN', 'SOCIETY_MANAGER'),
   ] as const;
+  const readable = [
+    authenticateRequest,
+    loadAuthenticatedUser,
+    requireRoles('SYSTEM_ADMIN', 'SOCIETY_MANAGER', 'OWNER_MEMBER'),
+  ] as const;
 
-  router.get('/budgets', ...authorized, async (request, response, next) => {
+  router.get('/budgets', ...readable, async (request, response, next) => {
     try {
       const user = currentUser(request);
       const query: Record<string, unknown> = {};
@@ -60,6 +66,11 @@ export function createBudgetsRouter(
         if (request.query.societyId !== undefined) query.societyId = parseObjectId(request.query.societyId, 'societyId');
       } else {
         query.societyId = user.societyId;
+      }
+      if (user.role === 'OWNER_MEMBER') {
+        if (!user.societyId) throw forbidden();
+        await assertOwnerSocietyAccess(user, user.societyId);
+        query.status = 'APPROVED';
       }
       if (request.query.financialYear !== undefined) query.financialYear = parseFinancialYear(request.query.financialYear);
       const records = await Budget.find(query).select(budgetFields).sort({ financialYear: -1, createdAt: -1 }).lean().exec();
@@ -69,7 +80,7 @@ export function createBudgetsRouter(
     }
   });
 
-  router.get('/budgets/:id', ...authorized, async (request, response, next) => {
+  router.get('/budgets/:id', ...readable, async (request, response, next) => {
     try {
       const user = currentUser(request);
       const budget = await findBudgetForUser(request.params.id, user);
@@ -147,7 +158,7 @@ export function createBudgetsRouter(
     }
   });
 
-  router.get('/budgets/:budgetId/categories', ...authorized, async (request, response, next) => {
+  router.get('/budgets/:budgetId/categories', ...readable, async (request, response, next) => {
     try {
       const budget = await findBudgetForUser(request.params.budgetId, currentUser(request));
       if (!budget) throw notFound();
@@ -230,7 +241,12 @@ async function findBudgetForUser(id: unknown, user: CurrentUserContext, session?
   const objectId = parseObjectId(id, 'budgetId');
   const query: Record<string, unknown> = { _id: objectId };
   if (user.role !== 'SYSTEM_ADMIN') query.societyId = user.societyId;
-  return Budget.findOne(query).select(budgetFields).session(session ?? null).lean().exec() as unknown as Promise<BudgetRecord | null>;
+  const budget = await Budget.findOne(query).select(budgetFields).session(session ?? null).lean().exec() as unknown as BudgetRecord | null;
+  if (budget && user.role === 'OWNER_MEMBER') {
+    await assertOwnerSocietyAccess(user, budget.societyId.toString());
+    if (budget.status !== 'APPROVED') return null;
+  }
+  return budget;
 }
 
 async function recalculateBudget(budgetId: string, session: mongoose.ClientSession): Promise<Record<string, string>> {

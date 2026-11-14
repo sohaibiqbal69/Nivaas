@@ -37,6 +37,29 @@ describe('GovernanceProofRegistry', function () {
     expect(proof.registeredAt).to.be.greaterThan(0);
   });
 
+  it('accepts the versioned AuditLog reference encoded by the backend using Solidity abi.encode', async function () {
+    const { registry, submitter } = await deploy();
+    const societyObjectId = '68a123456789012345678902';
+    const auditLogObjectId = '68a123456789012345678901';
+    const domainHash = ethers.keccak256(ethers.toUtf8Bytes('NIVAAS:AUDIT_LOG:REFERENCE'));
+    const reference = ethers.keccak256(ethers.AbiCoder.defaultAbiCoder().encode(
+      ['bytes32', 'uint256', 'bytes32', 'bytes32'],
+      [
+        domainHash,
+        1n,
+        ethers.zeroPadValue(`0x${societyObjectId}`, 32),
+        ethers.zeroPadValue(`0x${auditLogObjectId}`, 32),
+      ],
+    ));
+    const hash = ethers.keccak256(ethers.toUtf8Bytes('audit-log-canonical-hash'));
+
+    await registry.connect(submitter).registerProof(reference, 1, hash);
+    const proof = await registry.getProof(reference, 1);
+    expect(proof.recordReference).to.equal(reference);
+    expect(proof.recordHash).to.equal(hash);
+    expect(await registry.verifyProof(reference, 1, hash)).to.equal(true);
+  });
+
   it('rejects unauthorized registration', async function () {
     const { registry, other } = await deploy();
 

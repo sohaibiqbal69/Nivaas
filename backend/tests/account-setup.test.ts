@@ -365,6 +365,26 @@ describe('account setup unit tests', () => {
     });
   });
 
+  it('rejects a revoked credential with the same generic 401', async () => {
+    const rawCredential = 'revoked-setup-credential';
+    const { repository } = createMockRepository({
+      credential: {
+        _id: 'cred-revoked', userId, credentialHash: hashCredential(rawCredential),
+        createdAt: new Date(), expiresAt: new Date(Date.now() + 60_000), revokedAt: new Date(),
+      },
+    });
+    const baseUrl = await startServer(createSetupApp(new AccountSetupService(repository)));
+    const response = await fetch(`${baseUrl}/setup`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ credential: rawCredential, newPassword: validNewPassword }),
+    });
+    expect(response.status).toBe(401);
+    expect(await response.json()).toMatchObject({
+      success: false,
+      error: { code: 'UNAUTHORIZED', message: 'The setup credential is invalid or has expired.' },
+    });
+  });
+
   it('supports platform administrator with null societyId for audit logging', async () => {
     const { repository, state } = createMockRepository({
       user: {

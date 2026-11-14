@@ -10,6 +10,7 @@ import { issueAccessToken } from '../../src/modules/auth/jwt.js';
 import { AuditLog } from '../../src/modules/audit/models/AuditLog.js';
 import { Society } from '../../src/modules/society/models/Society.js';
 import { User } from '../../src/modules/users/models/User.js';
+import { Ownership } from '../../src/modules/property/models/Ownership.js';
 import {
   clearIntegrationTestDatabase,
   connectIntegrationTestDatabase,
@@ -22,6 +23,7 @@ const societyB = new Types.ObjectId();
 const managerA = new Types.ObjectId();
 const managerB = new Types.ObjectId();
 const admin = new Types.ObjectId();
+const ownerA = new Types.ObjectId();
 
 function app() {
   const application = express();
@@ -58,7 +60,9 @@ describe('Budget MongoDB integration', () => {
       { _id: admin, name: 'Admin', email: `${admin}@test`, role: 'SYSTEM_ADMIN', status: 'ACTIVE', societyId: null },
       { _id: managerA, name: 'Manager A', email: `${managerA}@test`, role: 'SOCIETY_MANAGER', status: 'ACTIVE', societyId: societyA },
       { _id: managerB, name: 'Manager B', email: `${managerB}@test`, role: 'SOCIETY_MANAGER', status: 'ACTIVE', societyId: societyB },
+      { _id: ownerA, name: 'Owner A', email: `${ownerA}@test`, role: 'OWNER_MEMBER', status: 'ACTIVE', societyId: societyA },
     ]);
+    await Ownership.create({ societyId: societyA, flatId: new Types.ObjectId(), userId: ownerA, ownershipType: 'PRIMARY', status: 'ACTIVE' });
   });
   afterAll(async () => disconnectIntegrationTestDatabase());
 
@@ -89,6 +93,21 @@ describe('Budget MongoDB integration', () => {
       categories: [{ allocatedAmount: '100.1', spentAmount: '20.05', remainingAmount: '80.05' }],
     });
     expect(await AuditLog.countDocuments({ societyId: societyA })).toBe(2);
+  });
+
+  it('exposes only approved budget totals and categories to a verified same-society owner', async () => {
+    const approved = await Budget.create({ societyId: societyA, financialYear: '2026-2027', title: 'Approved annual plan', totalAllocated: '9000', totalSpent: '1200', totalRemaining: '7800', status: 'APPROVED' });
+    const draft = await Budget.create({ societyId: societyA, financialYear: '2027-2028', title: 'Draft plan', totalAllocated: '5000', totalSpent: '0', totalRemaining: '5000', status: 'DRAFT' });
+    const foreign = await Budget.create({ societyId: societyB, financialYear: '2026-2027', title: 'Foreign plan', totalAllocated: '8000', totalSpent: '0', totalRemaining: '8000', status: 'APPROVED' });
+    const application = app();
+    const listed = await request(application, '/api/budgets', ownerA);
+    expect(listed.status).toBe(200);
+    expect((await listed.json()).data).toEqual([expect.objectContaining({ _id: approved._id.toString(), totalAllocated: '9000', totalSpent: '1200', totalRemaining: '7800' })]);
+    expect((await request(application, `/api/budgets/${approved._id}`, ownerA)).status).toBe(200);
+    expect((await request(application, `/api/budgets/${draft._id}`, ownerA)).status).toBe(404);
+    expect((await request(application, `/api/budgets/${foreign._id}`, ownerA)).status).toBe(404);
+    expect((await request(application, `/api/budgets/${approved._id}/categories`, ownerA)).status).toBe(200);
+    expect((await request(application, '/api/budgets', ownerA, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ societyId: societyA.toString(), financialYear: '2028-2029', title: 'Owner edit' }) })).status).toBe(403);
   });
 
   it('enforces society scope, validation, duplicate annual budgets, and authorization', async () => {

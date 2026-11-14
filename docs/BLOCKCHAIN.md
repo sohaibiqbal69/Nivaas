@@ -1,6 +1,6 @@
 # BLOCKCHAIN.md
 
-**Version:** 1.4\
+**Version:** 1.5\
 **Status:** Active Planning Document --- Revised Governance & Integrity
 Architecture
 
@@ -165,6 +165,17 @@ A finalized resolution may commit:
 
 Complete meeting and voter records remain off-chain.
 
+The current operational implementation submits the append-only AuditLog
+created for `GOVERNANCE_RESOLUTION_FINALIZED` through the existing
+AuditLog proof service. The service recalculates the canonical AuditLog hash,
+persists its proof operation before broadcast, reconciles existing chain
+state, waits for a successful transaction receipt, and reads the registry
+back before reporting `CONFIRMED`. Individual vote choices and voter IDs are
+not submitted. A proof attests to the integrity of that recorded finalization
+event; it does not independently establish voter eligibility, notice
+delivery, the truth of the underlying event, or legal validity of the
+resolution.
+
 ## 6.2 Governance Result Proof
 
 ``` text
@@ -254,20 +265,63 @@ validity, or correctness beyond the committed data.
 
 An AuditLog event is persisted off-chain with its fixed `recordHash` before
 any selected proof submission. Proof submission may happen asynchronously.
-The blockchain logical-operation/transaction-tracking layer associates the
-logical operation and its transaction attempts with the AuditLog event and
-that fixed hash. Transaction hashes and lifecycle states belong to this
-tracking layer. Retries or replacements remain associated with the same
-logical operation and original AuditLog event. A failure remains a failure
-in transaction tracking and must not be represented as confirmation.
+The `BlockchainProofOperation` MongoDB collection associates one logical
+operation and its transaction attempts with the AuditLog event and fixed
+hash. Its unique identity is record type/ID, proof version, chain ID,
+contract address, and deployment transaction hash (which distinguishes
+local-chain resets). Transaction hashes and lifecycle states belong to this
+tracking collection. Retries or replacements remain associated with the
+same logical operation and original AuditLog event. A failure remains a
+failure in transaction tracking and must not be represented as confirmation.
+
+An activated project-spending threshold version may be anchored using the same
+AuditLog proof service. Its AuditLog metadata contains a Keccak-256 hash of
+canonical JSON with explicit domain `NIVAAS_GOVERNANCE_POLICY_COMMITMENT`,
+commitment version, society ID, policy type, rule-version number, and threshold
+configuration. The registry stores the hash of the complete AuditLog event,
+which in turn binds that policy commitment; no individual votes or private
+policy data are placed on-chain. MongoDB remains authoritative. Failure or
+absence of the local registry does not prevent version activation and must be
+reported separately from the policy's active state.
+
+For a passing project-approval resolution, the finalization AuditLog also
+includes the validated ApprovalDecision ID, exact rule version, approval
+type/body, evaluated amount, required threshold, and applicable quotation or
+change-request revision. The existing finalization proof therefore commits to
+the approval context it actually validated; individual votes remain off-chain.
+
+For the first backend vertical slice, an immutable AuditLog record is
+selected explicitly by an authenticated caller; the backend recomputes its
+persisted content hash with `hashAuditLog()` and rejects a mismatch. The
+version-1 reference is `keccak256(abi.encode(domainHash, uint256(1),
+societyId, auditLogId))`, where `domainHash` is
+`keccak256(utf8("NIVAAS:AUDIT_LOG:REFERENCE"))` and each MongoDB ObjectId's
+12 bytes are left-zero-padded to bytes32. This is Solidity `abi.encode`, not
+packed encoding. Reference derivation version, registry proof version, and
+AuditLog `hashVersion` are independent version fields.
+
+The backend persists a PENDING operation before broadcast. It verifies the
+configured chain and contract, reconciles the current registry proof and
+registration events from this deployment before retry, submits only the
+opaque reference, proof version, and canonical record hash, waits for a
+successful receipt, and reads `getProof` back. Only an exact reference,
+version, and hash match after a successful receipt may set CONFIRMED. If a
+matching proof exists after an ambiguous failure, the backend recovers the
+operation; a different hash is a conflict and is never overwritten. A known
+revert is FAILED, and missing/ambiguous receipt outcomes remain retryable;
+all retries reconcile before sending. No transaction status is fabricated.
+
+The registry's `getProof` deliberately reverts with `UnknownProof()` when the
+reference/version pair is absent. The backend treats only that exact custom
+error selector as an empty lookup result so submission can continue; unrelated
+RPC errors and other contract reverts remain failures.
 
 The original AuditLog event is never updated to attach, replace, or confirm
 proof information. Do not create blockchain-lifecycle AuditLog events merely
 for submission, pending, failure, retry, or confirmation states. The
 documented AuditLog `blockchainTransactionHash` field is retained, but is not
 the authoritative location for a hash that becomes available after event
-creation; its exact persistence and use semantics remain unresolved. No
-complete audit record is stored on-chain; only selected event hashes or
+creation; its legacy/use semantics remain unresolved. No complete audit record is stored on-chain; only selected event hashes or
 references may be anchored. A commitment proves integrity/existence of the
 recorded reference, not the underlying event's truth or legal validity.
 
@@ -1329,17 +1383,35 @@ Tests
 
 # 43. BLOCKCHAIN STATUS
 
-**Version:** 1.4\
+### Local chain restarts and historical confirmations (24 October 2026)
+
+Hardhat's development chain is ephemeral. Restarting it loses registrations and
+receipts. Deterministic redeployment may reuse the contract address and deployment
+transaction hash; matching those values alone does not establish chain continuity.
+Never infer present confirmation from MongoDB status or a saved transaction hash.
+
+Verification still checks chain/deployment configuration, the canonical AuditLog
+hash/reference, registry state, matching registration event and successful receipt.
+When the registry has no proof but an operation/attempt was previously CONFIRMED,
+the verify response returns UNVERIFIABLE with verified:false. A record with no
+confirmation history remains UNKNOWN (UI: NO PROOF). Current pending/failed
+attempts remain visible. RPC/deployment failures are shown as unavailable, with
+saved metadata retained in the browser where retrievable; they are not missing proofs.
+
+An explicit retry reconciles current registry state before registering again,
+preserving earlier attempts. It cannot recover a deleted chain's proof. Existing
+verified proofs are not duplicated. Use current receipt/event/read-back evidence
+to confirm a new proof. Persistent public testnet deployment is a separate milestone.
+
+**Version:** 1.5\
 **Status:** Active Planning Document
 
 This version aligns the blockchain layer with the revised membership,
 eligibility, rule-version, approval, quotation-versioning,
 governance-resolution, audit, and historical-integrity architecture. It
-clarifies asynchronous AuditLog proof association through the blockchain
-logical-operation/transaction-tracking layer while preserving immutable
-off-chain audit events, and defines the versioned canonical AuditLog hash
-protocol using BSON Canonical Extended JSON v2, RFC 8785 JCS, and Ethereum
-Keccak-256.
-
-The exact Solidity interface and on-chain payload schema must be frozen
-before smart-contract implementation.
+clarifies the AuditLog proof operation identity, domain-separated reference
+derivation, persisted transaction attempts, receipt/read-back confirmation,
+and reconciliation behavior while preserving immutable off-chain events.
+It also defines the canonical AuditLog hash protocol using BSON Canonical
+Extended JSON v2, RFC 8785 JCS, and Ethereum Keccak-256. Production network
+and signer custody remain unresolved.

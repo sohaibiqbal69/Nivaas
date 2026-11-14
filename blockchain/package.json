@@ -4,7 +4,9 @@
   "private": true,
   "scripts": {
     "compile": "node scripts/compile.cjs compile",
-    "test": "node scripts/compile.cjs test"
+    "test": "node scripts/compile.cjs test",
+    "node": "node scripts/compile.cjs node --hostname 127.0.0.1",
+    "deploy:local": "node scripts/compile.cjs run scripts/deploy.ts --network localhost"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-ethers": "^3.1.0",

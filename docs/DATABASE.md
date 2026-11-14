@@ -1,6 +1,6 @@
 ## Database Specification
 
-**Document:** `DATABASE.md` **Version:** 1.12 **Database:** MongoDB
+**Document:** `DATABASE.md` **Version:** 1.17 **Database:** MongoDB
 **Status:** Active Planning Document --- Revised Governance, Membership & Rule Versioning Schema
 
 ------------------------------------------------------------------------
@@ -130,6 +130,9 @@ Approval Engine and governance services.
     status
     effectiveFrom
     effectiveTo
+    changeReason
+    supportingDocumentReference
+    policyChangeAuditLogId
     approvalPolicy
     majorityRules
     quorumRules
@@ -145,6 +148,16 @@ Approval Engine and governance services.
 
 The exact configuration object may evolve, but historical decisions must
 retain a reference to the rule version that was applied.
+
+Approval-threshold changes create a new rule version. `changeReason`,
+`supportingDocumentReference`, and `policyChangeAuditLogId` are immutable on
+that version; the prior threshold is preserved in the linked append-only
+AuditLog event. `effectiveTo` and the superseded status are the lifecycle
+closure changes to the previous active version. The audit metadata contains a
+domain-separated canonical configuration commitment over society ID, policy
+type, rule-version number, and threshold. The blockchain proof, when available,
+proves the AuditLog hash that contains that commitment; MongoDB remains the
+authoritative configuration store.
 
 ------------------------------------------------------------------------
 
@@ -240,6 +253,7 @@ account-setup credential. It is not a generic token framework.
     createdAt
     expiresAt
     consumedAt
+    revokedAt
 
 - `_id` is a generated MongoDB ObjectId.
 - `userId` is a required ObjectId reference to the intended `User`.
@@ -252,14 +266,17 @@ account-setup credential. It is not a generic token framework.
 - `consumedAt` is an optional MongoDB Date, absent or null until successful
   setup, then records
   consumption. A consumed credential cannot be used again.
-- The credential is usable only while unconsumed, unexpired, and associated
+- `revokedAt` is an optional MongoDB Date, absent or null until an authorized
+  local credential reissue invalidates the credential. A revoked credential
+  cannot be used even if it has not expired or been consumed.
+- The credential is usable only while unconsumed, unrevoked, unexpired, and associated
   with a User currently in `PENDING_SETUP` status.
 
-The credential lookup requires a unique index on `credentialHash`. No
-additional indexes or uniqueness constraints are specified here. Expired
-credential retention/cleanup and any credential invalidation mechanism
-beyond consumption and expiry remain unspecified. Credential regeneration
-or resend is not part of the initial setup capability.
+The credential lookup requires a unique index on `credentialHash`. Expired
+and consumed credential retention/cleanup remains unspecified. Reissue revokes
+outstanding credentials and creates the new hash and expiry in the same
+transaction as a secret-free AuditLog event. Reissue delivery is local-only
+until a secure production delivery provider is configured.
 
 Successful account setup must atomically persist the new User password hash,
 consume the credential, change User status from `PENDING_SETUP` to `ACTIVE`,
@@ -267,8 +284,9 @@ and append the mandatory AuditLog status-transition event. The deployment
 must support the MongoDB transaction needed to prevent partial completion.
 The AuditLog transition records `previousState.status` and `newState.status`
 so a later reactivation can restore the account's lifecycle state. No
-separate AuditLog event is required for credential generation, consumption
-alone, or failed setup attempts.
+No separate AuditLog event is required for initial credential generation,
+consumption alone, or failed setup attempts. Administrative reissue writes its
+own secret-free AuditLog event in the same transaction.
 
 `email` is a unique login identity across user accounts. The case and
 normalization policy used to determine email identity is not specified.
@@ -277,6 +295,43 @@ The permitted profile/account-information update fields are `name`,
 entity. The API/business rules define that `_id`, `societyId`, `role`,
 `status`, `passwordHash`, `createdAt`, and `updatedAt` are not editable
 through `PATCH /users/:id`.
+
+## AuthSession
+
+### Collection
+
+    authSessions
+
+### Purpose
+
+Stores one revocable refresh session for each successful login. A session is
+per login/tab, not one shared browser cookie. The raw refresh token is never
+persisted; only its SHA-256 hash is stored.
+
+### Fields
+
+    _id
+    sessionId
+    userId
+    tokenHash
+    createdAt
+    expiresAt
+    revokedAt
+
+- `sessionId` is a random, non-secret identifier and is unique.
+- `userId` references the persisted User whose credentials authenticated.
+- `tokenHash` is a unique SHA-256 hash of a 256-bit random base64url token.
+- `createdAt` is the login time. `expiresAt` is an absolute expiry set from
+  `AUTH_REFRESH_SESSION_TTL_SECONDS`; access-token renewal does not extend it.
+- `revokedAt` is absent until explicit logout or an authoritative inactive-
+  user check revokes the session.
+- An expiry TTL index may remove expired sessions. Expiry is checked directly
+  by the refresh operation and does not depend on TTL cleanup timing.
+
+Refresh sessions are separate from one-time `AccountSetupCredential` records.
+No society, role, membership or governance authority is copied into the
+session record. Renewal reloads the active User; normal request authorization
+continues to use the existing persisted-user and society-scoped middleware.
 
 ## Role
 
@@ -327,6 +382,14 @@ A society-scoped User may also have:
        ↓
     Buildings
 
+`buildingCode` is optional. The unique compound index
+`(societyId, buildingCode)` uses a partial filter for string-valued codes so
+omitted codes do not collide. This preserves per-society uniqueness for codes
+that are present. Existing legacy sparse indexes require the guarded
+`migrate:building-code-index` operation after checking the target database;
+the migration never rewrites building records and refuses protected database
+names.
+
 ------------------------------------------------------------------------
 
 # 8. FLAT
@@ -352,6 +415,14 @@ residence/occupancy is represented by the `residences` collection. These
 relationship collections are authoritative. Owner and resident ID arrays
 are intentionally not duplicated on Flat. A flat may have multiple owners
 and multiple residents through these relationships.
+
+`flatNumber` is stored as text so values such as `002` retain leading zeroes.
+The unique database index `(buildingId, flatNumber)` prevents duplicate flat
+numbers inside one building, including concurrent inserts; the same number may
+be used in another building. A building's society relationship is validated
+when a flat is created. Existing duplicate data is not rewritten automatically;
+index creation must be investigated and remediated explicitly if legacy
+duplicates prevent the unique index from being established.
 
 ------------------------------------------------------------------------
 
@@ -383,6 +454,13 @@ residence.
 
 Multiple owners may be associated with one flat. Ownership does not by itself
 grant multiple governance votes.
+
+Read-only owner transparency authorization also queries this collection for
+the authenticated owner, target society, `status: ACTIVE`, and currently
+effective `startDate`/`endDate`. Residence and Membership are deliberately not
+used as substitutes. Ending a Residence does not alter Ownership and
+therefore does not revoke owner transparency; ending Ownership or its
+effective period does. This authorization adds no schema/index change.
 
 ------------------------------------------------------------------------
 
@@ -578,12 +656,41 @@ owned.
     title
     description
     amount
-    invoiceEvidenceId
+    invoiceReference
     status
     expenseDate
     createdBy
     createdAt
-    updatedAt
+
+The current MVP permits only append-only `RECORDED` expenses. Each expense is
+bound to a project, its society, an APPROVED budget and a category in that
+budget. It stores an optional society-supplied invoice reference; invoice-file
+upload is not implemented. Budget/category `spentAmount`, `remainingAmount`,
+and budget totals are recalculated in the same transaction as the expense and
+audit event. Project approved-cost and category allocation caps are enforced
+before insertion. The model has no `updatedAt` because financial entries are
+immutable. No overrun approval route is modeled while that rule remains TBC.
+
+## Project Updates
+
+Collection: `projectUpdates`
+
+Fields: `_id`, `societyId`, `projectId`, `kind` (`PROGRESS` or `COMPLETION`),
+`title`, `description`, optional `invoiceReference`, `createdBy`, `createdAt`.
+Records are append-only. Photo metadata is stored as an Evidence record
+related to this update; evidence IDs and hashes are queried through the
+immutable Evidence collection rather than modifying the update.
+
+Index: `(societyId, projectId, createdAt)`.
+
+## Project Update Evidence
+
+Evidence may reference `relatedEntityType: ProjectUpdate` and use
+`PROGRESS_PHOTO` or `AFTER_PHOTO`. Bytes remain in private local evidence
+storage; only metadata and SHA-256 are stored in MongoDB. `AFTER_PHOTO` on a
+COMPLETION update is a prerequisite for the current manager completion route.
+No private photo, invoice, or personal data is placed on-chain by this
+workflow.
 
 ------------------------------------------------------------------------
 
@@ -1169,6 +1276,56 @@ resolutionId + voterId
 The smart contract must independently prevent duplicate governance
 voting where blockchain voting is implemented.
 
+## Governance ordinary general-body workflow
+
+`SocietyRuleVersion` carries a typed, versioned `governancePolicy` envelope.
+Its `schemaVersion` is distinct from the society's `versionNumber`. The
+envelope stores explicit per-decision eligibility, quorum, majority, voting,
+vote-change and ballot-privacy rules. Legacy `majorityRules`, `quorumRules`,
+and `votingRules` `Mixed` values remain readable but are not silently
+migrated. Once activated, a typed policy is immutable within that rule
+version; edits create a new version. Activation validates the complete
+configuration. The manager-supplied document reference is recorded as an
+assertion, not legal certification by Nivaas.
+
+The starter ordinary general-body policy is a configurable product default:
+eligible population is the immutable eligible-member snapshot; quorum is
+`min(ceil(2 * eligibleCount / 3), 20)`; YES must be strictly greater than NO;
+ABSTAIN counts toward attendance/quorum and is excluded from the YES/NO
+denominator; tie or unmet quorum yields `NO_DECISION`. The configuration
+selects only `PRIMARY` and `ACTIVE` membership records with valid dates and
+active same-society users. Snapshot creation fails closed when it finds any
+current active `JOINT`, `ASSOCIATE`, or `PROVISIONAL` memberships, because the
+current model cannot validate the statutory ordering, consent, and provisional
+basis evidence needed to decide their rights. They are not silently omitted.
+
+The `meetings`, `governanceResolutions`, `governanceEligibilitySnapshots`,
+and `governanceVotes` collections are society-scoped. A resolution stores the
+rule/policy and eligibility snapshots. The eligibility snapshot is unique per
+resolution and contains private voter IDs; API responses expose only its
+count. Votes are append-only and indexed uniquely by `(societyId,
+resolutionId, voterId)`. Result counts, quorum and outcome are persisted and
+immutable after calculation. Transactions guard votes against concurrent
+closure/finalization. The focused integration suite creates and verifies the
+snapshot and vote uniqueness indexes and exercises concurrent finalization
+against the configured `nivaas_test` `rs0` replica set. Deployment-specific
+index creation and transaction behavior still require verification in each
+target environment.
+
+Meeting publication and each resolution lifecycle transition write append-only
+AuditLog events. A project can be approved only by finalizing an APPROVED
+project resolution whose current same-society `ApprovalDecision`, SGM meeting,
+rule version, amount and quotation revision/change-request context all still
+match. REJECTED and `NO_DECISION` outcomes do not update project approval.
+After successful finalization, the canonical AuditLog proof service is called;
+the proof status is confirmed only after a successful chain receipt and
+matching registry read-back.
+
+Committee decisions, special resolutions, elections/secret ballots, chair
+casting votes, unsupported membership categories, other approval route
+mappings, and legal adoption verification remain disabled or unresolved. A
+stored notice reference does not prove delivery or legal sufficiency.
+
 ------------------------------------------------------------------------
 
 # 30. FUTURE ELECTION ARCHITECTURE
@@ -1421,6 +1578,14 @@ Examples:
 
 # 33. COMPLAINT
 
+Implementation note: the first operational slice persists societyId,
+createdBy, title, description, category, priority, status, resolvedAt and
+timestamps. Identity and original complaint content are immutable. Optional
+flat/assignment/closure fields below are reserved for subsequent supported
+workflows and are not accepted by the current creation API. Compound indexes
+cover society/creator/date and society/status/date. State updates use version
+and status checks inside MongoDB transactions with timeline and audit writes.
+
 ## Collection
 
     complaints
@@ -1455,6 +1620,12 @@ Examples:
 ------------------------------------------------------------------------
 
 # 34. COMPLAINT UPDATE
+
+Implemented timeline records contain complaintId, status, description,
+createdBy and createdAt, indexed by complaint/date. Normal model updates,
+deletes, replacements and mutating bulk writes are rejected. No API permits
+timeline edits. Photo timeline entries now store immutable `evidenceIds`;
+earlier entries without this field remain valid.
 
 Complaint updates should be stored as timeline records. Possible
 structure:
@@ -1522,6 +1693,18 @@ field.
 
 # 36. EVIDENCE
 
+Implemented complaint-photo metadata is immutable and stored in `evidence`.
+`fileName` is server-generated; provider references are excluded from normal
+queries/API serialization. `storagePath` is an opaque local/S3 key or private
+Cloudinary public ID. The provider discriminator and Cloudinary asset ID,
+resource type, authenticated delivery type, format and version are internal
+metadata only; signed URLs and credentials are never persisted. `fileHash` is
+lowercase SHA-256 hex of the stored bytes. Compound index: societyId,
+relatedEntityType, relatedEntityId. Metadata, ComplaintUpdate linkage and
+AuditLog commit in one transaction. The complaint version is incremented to
+serialize uploads with status transitions; uploading evidence never changes
+the status itself.
+
 ## Collection
 
     evidence
@@ -1537,7 +1720,13 @@ Stores metadata about uploaded photographs/documents.
     fileName
     fileType
     fileSize
+    storageProvider (internal, excluded from normal queries)
     storagePath
+    storageAssetId (Cloudinary only, internal)
+    storageResourceType (Cloudinary only, internal)
+    storageDeliveryType (Cloudinary only, internal)
+    storageFormat (Cloudinary only, internal)
+    storageVersion (Cloudinary only, internal)
     fileHash
     uploadedBy
     relatedEntityType
@@ -1724,8 +1913,70 @@ remains off-chain; only selected event hashes/references may be anchored.
 
 The documented `blockchainTransactionHash` field is retained, but it must
 not be treated as the authoritative location for a transaction hash that
-becomes available after the immutable AuditLog event is created. Its exact
-persistence and use semantics remain unresolved.
+becomes available after the immutable AuditLog event is created. Its legacy
+use semantics remain unresolved.
+
+## BlockchainProofOperation
+
+### Collection
+
+    blockchainProofOperations
+
+### Purpose
+
+Tracks one logical proof operation for an immutable AuditLog event and its
+transaction attempts. This collection is authoritative for asynchronous
+proof state; it does not change the AuditLog event.
+
+### Fields
+
+    _id
+    recordType                  // AUDIT_LOG
+    recordId                    // AuditLog ObjectId
+    societyId                   // society ObjectId
+    referenceDerivationVersion  // uint32-compatible integer, initially 1
+    proofVersion                // positive registry version, initially 1
+    auditLogHashVersion         // AuditLog canonical hash version
+    recordReference             // bytes32 hex
+    recordHash                  // immutable canonical AuditLog bytes32
+    chainId                     // decimal string
+    contractAddress             // normalized EVM address
+    deploymentTransactionHash   // identifies this deployment/reset
+    status                      // PENDING | CONFIRMED | FAILED
+    attempts                    // ordered transaction attempt metadata
+    confirmedAt                 // optional
+    blockNumber                 // optional
+    lastError                   // optional safe error code/message
+    createdAt
+    updatedAt
+
+Each attempt records its sequence, start/broadcast/receipt timestamps,
+transaction hash when known, sender, block number, outcome (`PREPARED`,
+`BROADCAST`, `CONFIRMED`, `REVERTED`, or `AMBIGUOUS`), and a safe error code.
+`PREPARED` is persisted before network broadcast; `BROADCAST` is recorded
+only after the RPC returns a transaction hash. It contains no signer key or AuditLog payload. Create a unique index
+on `(recordType, recordId, proofVersion, chainId, contractAddress,
+deploymentTransactionHash)` to make concurrent requests converge on one
+logical operation while keeping separate local deployments distinct.
+The operation's `recordReference`, `recordHash`, society, and version
+metadata are immutable after creation; attempts and lifecycle metadata are
+updated under the operation's retry/reconciliation rules.
+
+Status is CONFIRMED only after a successful transaction receipt and a
+matching `getProof` read-back from the configured registry. PENDING includes
+an in-flight or ambiguous attempt. FAILED records a known reverted/failed
+attempt and remains eligible for reconciliation/retry. Before broadcasting
+again, the backend reads the registry and reconciles `ProofRegistered`
+events since the configured deployment; a matching on-chain proof is
+recovered and confirmed without resubmission, while a conflicting proof is
+never overwritten and is reported as an integrity conflict.
+
+AuditLog record reference derivation version 1 hashes ABI encoding of the
+domain hash `keccak256("NIVAAS:AUDIT_LOG:REFERENCE")`, uint256 version 1,
+and society/AuditLog ObjectIds represented as left-zero-padded bytes32.
+This version is independent of `proofVersion` and `auditLogHashVersion`.
+The AuditLog's stored hash is verified by recomputing with the existing
+canonical hash implementation before creating or retrying an operation.
 
 ## Examples
 
@@ -1740,7 +1991,10 @@ persistence and use semantics remain unresolved.
     PROJECT_COMPLETED
     COMPLAINT_CREATED
     COMPLAINT_RESOLVED
+    NOTICE_CREATED
+    NOTICE_UPDATED
     NOTICE_PUBLISHED
+    NOTICE_ARCHIVED
     PAYMENT_CONFIRMED
 
 ------------------------------------------------------------------------
@@ -2012,7 +2266,18 @@ transaction hashes.
 
 # 49. DATABASE STATUS
 
-Version 1.12 --- Active Planning Document. Revised to align with SRS v1.9, Business Rules v1.9, API v1.9 and Architecture v1.11. The schema now explicitly separates ownership, residence and membership, distinguishes platform-wide System Administrator accounts from society-scoped users, documents nullable `societyId` for `SYSTEM_ADMIN` and non-null society association for society-scoped roles, specifies pending-setup password-hash state and dedicated one-time account-setup credential persistence, documents the defined User status lifecycle and reactivation behavior, specifies unique login email identity, defines the AuditLog field types, optionality, correction reference, immutability, required indexes, target-based society scope and versioned canonical hash protocol, assigns asynchronous AuditLog proof association and transaction lifecycle tracking to the blockchain operation layer, adds versioned society rules, approval evaluations and governance eligibility snapshots, and preserves historical decision context. The database schema must not be changed by an AI coding agent without considering the effects on:
+Implementation extension (24 October 2026): Complaint.description/category/priority
+are optional descriptive text, normalized to empty strings by the creation service.
+Existing complaint records are not rewritten. Evidence.relatedEntityType now also
+supports Notice, with category NOTICE_ATTACHMENT and an immutable Notice reference.
+Notice.attachmentIds is updated in the same transaction as Evidence and its audit
+event, and only while DRAFT. File bytes remain off-database in private storage.
+No migration or cleanup of existing records is required.
+
+UNVERIFIABLE is a derived blockchain verification response, not a rewrite of a
+stored operation's historical CONFIRMED state. Existing attempt history is retained.
+
+Version 1.13 --- Active Planning Document. Revised to align with SRS v1.9, Business Rules v1.9, API v1.10 and Architecture v1.11. In addition to the prior membership, AuditLog, rule-version, approval, and eligibility schema, it defines the AuditLog BlockchainProofOperation collection, deployment-aware uniqueness, immutable proof identity/hash metadata, transaction-attempt history, and retry/reconciliation states. The database schema must not be changed by an AI coding agent without considering the effects on:
 
 -   SRS
 -   BUSINESS_RULES.md
@@ -2020,3 +2285,9 @@ Version 1.12 --- Active Planning Document. Revised to align with SRS v1.9, Busin
 -   Frontend
 -   Blockchain integration
 -   Tests
+
+## Committee approval and offline meeting records — 24 October 2026
+
+`CommitteeApprovalVote` stores one immutable APPROVE/REJECT action per authenticated active committee appointee and current ApprovalDecision revision. `CommitteeApprovalResult` stores the immutable outcome, counts, active committee population, quorum, rule snapshot, finalizing manager, and time. Defaults are 2/3 quorum rounded up and strictly more than half of cast decisions; the effective approval policy can configure the ratios and optional quorum cap. Decision and result records stay off-chain.
+
+`OfflineResolutionRecord` is separate from committee records. It captures an immutable meeting and rule reference, eligible attendee IDs, method (SHOW_OF_HANDS or non-secret POLL), aggregate YES/NO/ABSTAIN counts, minutes/evidence references, calculated quorum/outcome, and manager confirmation. Attendance is checked against the resolution's private immutable eligibility snapshot. It contains no individual ballot mapping. The current Evidence storage only accepts JPEG/PNG notice/complaint evidence; this record stores document references and does not add general meeting-file upload or broaden file validation.

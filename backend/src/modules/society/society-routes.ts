@@ -100,7 +100,7 @@ const societyRepository: SocietyRepository = {
           status: 'ACTIVE',
           effectiveFrom: new Date(),
           createdBy,
-          approvalPolicy: { threshold: DEFAULT_APPROVAL_THRESHOLD },
+          approvalPolicy: { threshold: DEFAULT_APPROVAL_THRESHOLD, committeeApproval: { quorumNumerator: 2, quorumDenominator: 3, majorityNumerator: 1, majorityDenominator: 2, majorityComparison: 'STRICTLY_GREATER' } },
         }], { session });
         created = await Society.findById(society._id)
           .select(SOCIETY_RESPONSE_FIELDS.join(' ')).session(session).lean().exec() as unknown as SocietyRecord;

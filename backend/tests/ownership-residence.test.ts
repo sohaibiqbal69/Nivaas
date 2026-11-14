@@ -18,7 +18,9 @@ const managerId = '68a123456789012345678902';
 const societyA = '68a123456789012345678903';
 const societyB = '68a123456789012345678904';
 const flatA = '68a123456789012345678905';
+const flatB = '68a123456789012345678907';
 const userA = '68a123456789012345678906';
+const userB = '68a123456789012345678908';
 const servers: Server[] = [];
 
 function identity(id: string, role: string, societyId: string | null): CurrentUserRecord {
@@ -38,6 +40,7 @@ function createApp(identities: CurrentUserRecord[]) {
   const residences: RelationshipRecord[] = [];
   const audits: unknown[] = [];
   const repo = {
+    async findFlatSocietyId(flatId: string) { return flatId === flatA ? societyA : flatId === flatB ? societyB : null; },
     async findByFlat(type: 'ownership' | 'residence', flatId: string) {
       return flatId === flatA ? (type === 'ownership' ? ownerships : residences) : null;
     },
@@ -45,6 +48,7 @@ function createApp(identities: CurrentUserRecord[]) {
       if (flatId !== flatA) throw new ApiError(400, 'VALIDATION_ERROR', 'The flat does not exist.');
       if (data.societyId === societyB) throw new ApiError(400, 'VALIDATION_ERROR', 'The relationship does not belong to the flat society.');
       if (data.userId === '000000000000000000000000') throw new ApiError(400, 'VALIDATION_ERROR', 'The user does not exist.');
+      if (data.userId === userB) throw new ApiError(400, 'VALIDATION_ERROR', 'The user must be assigned to the flat society before recording this relationship.');
       const created = { ...record(type), flatId: new Types.ObjectId(flatId), ...data, societyId: new Types.ObjectId(societyA) } as RelationshipRecord;
       (type === 'ownership' ? ownerships : residences).push(created);
       audits.push({ type, actorId });
@@ -102,10 +106,16 @@ describe('ownership and residence administration', () => {
     expect(setup.audits).toHaveLength(3);
   });
 
-  it('rejects society-scoped roles, invalid ids, dates, and mismatched societies', async () => {
+  it('allows a manager to record same-society relationships and rejects cross-society flats', async () => {
     const setup = createApp([identity(managerId, 'SOCIETY_MANAGER', societyA), identity(adminId, 'SYSTEM_ADMIN', null)]);
-    const forbidden = await request(setup.app, `/flats/${flatA}/ownerships`, managerId, { method: 'POST', body: '{}' });
-    expect(forbidden.status).toBe(403);
+    const owned = await request(setup.app, `/flats/${flatA}/ownerships`, managerId, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: userA, ownershipType: 'PRIMARY', status: 'ACTIVE' }) });
+    expect(owned.status).toBe(201);
+    const foreignFlat = await request(setup.app, `/flats/${flatB}/ownerships`, managerId, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: userA, ownershipType: 'PRIMARY', status: 'ACTIVE' }) });
+    expect(foreignFlat.status).toBe(403);
+    const selfRelationship = await request(setup.app, `/flats/${flatA}/residents`, managerId, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: managerId, occupancyType: 'TENANT', status: 'ACTIVE' }) });
+    expect(selfRelationship.status).toBe(403);
+    const crossSocietyUser = await request(setup.app, `/flats/${flatA}/residents`, managerId, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: userB, occupancyType: 'TENANT', status: 'ACTIVE' }) });
+    expect(crossSocietyUser.status).toBe(400);
     const invalidId = await request(setup.app, '/flats/not-an-id/ownerships', adminId);
     expect(invalidId.status).toBe(400);
     const invalidDate = await request(setup.app, `/flats/${flatA}/residents`, adminId, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId: userA, occupancyType: 'OWNER', status: 'ACTIVE', startDate: 'bad' }) });

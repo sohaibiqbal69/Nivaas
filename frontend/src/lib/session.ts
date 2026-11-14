@@ -2,7 +2,13 @@ import type { AuthUser } from './api';
 
 const SESSION_KEY = 'nivaas.auth.session';
 
-export type StoredSession = { token: string; user: AuthUser };
+export type StoredSession = {
+  token: string;
+  refreshToken: string;
+  refreshSessionId: string;
+  refreshTokenExpiresAt: string;
+  user: AuthUser;
+};
 
 export function readSession(): StoredSession | null {
   try {
@@ -32,6 +38,12 @@ function isStoredSession(value: unknown): value is StoredSession {
   const record = value as Record<string, unknown>;
   const user = record.user as Record<string, unknown> | undefined;
   return typeof record.token === 'string'
+    && typeof record.refreshToken === 'string'
+    && /^[A-Za-z0-9_-]{43}$/.test(record.refreshToken)
+    && typeof record.refreshSessionId === 'string'
+    && record.refreshSessionId.length > 0
+    && typeof record.refreshTokenExpiresAt === 'string'
+    && Number.isFinite(Date.parse(record.refreshTokenExpiresAt))
     && Boolean(user)
     && typeof user?._id === 'string'
     && typeof user?.email === 'string'

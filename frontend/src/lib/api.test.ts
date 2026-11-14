@@ -62,4 +62,25 @@ describe('api client', () => {
     await expect(apiRequest('/private', { token: 'active-token' })).rejects.toMatchObject({ status: 403 });
     expect(handler).toHaveBeenCalledTimes(1);
   });
+
+  it('renews and retries an unauthorized protected request no more than once', async () => {
+    const handler = vi.fn(async () => 'renewed-token');
+    setUnauthorizedHandler(handler);
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(JSON.stringify({ success: false, error: { code: 'UNAUTHORIZED', message: 'Expired.' } }), { status: 401 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ success: true, data: { ok: true } }), { status: 200 }));
+
+    await expect(apiRequest('/private', { token: 'expired-token' })).resolves.toEqual({ ok: true });
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const retryHeaders = (fetchMock.mock.calls[1]?.[1] as RequestInit).headers as Headers;
+    expect(retryHeaders.get('Authorization')).toBe('Bearer renewed-token');
+
+    fetchMock.mockReset()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ success: false, error: { code: 'UNAUTHORIZED', message: 'Expired.' } }), { status: 401 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ success: false, error: { code: 'UNAUTHORIZED', message: 'Still unauthorized.' } }), { status: 401 }));
+    await expect(apiRequest('/private', { token: 'expired-token' })).rejects.toMatchObject({ status: 401 });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(handler).toHaveBeenCalledTimes(2);
+  });
 });

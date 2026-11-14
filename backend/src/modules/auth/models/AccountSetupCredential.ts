@@ -24,6 +24,9 @@ export const accountSetupCredentialSchema = new Schema(
     consumedAt: {
       type: Date,
     },
+    revokedAt: {
+      type: Date,
+    },
   },
   { collection: 'accountSetupCredentials', timestamps: false },
 );

@@ -6,6 +6,10 @@ import { connectDatabase, disconnectDatabase } from './config/database.js';
 const server = createServer(app);
 let shuttingDown = false;
 
+if (backendConfig.initialAdminBootstrapEnabled) {
+  throw new Error('NIVAAS_INITIAL_ADMIN_BOOTSTRAP_ENABLED is valid only for the one-shot bootstrap:initial-admin CLI; remove it from the API server environment.');
+}
+
 server.listen(backendConfig.port, () => {
   console.info(`Nivaas backend listening on port ${backendConfig.port}`);
   if (!backendConfig.mongoUri) {

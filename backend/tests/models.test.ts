@@ -16,6 +16,10 @@ import { Project, projectSchema, PROJECT_STATUSES } from '../src/modules/project
 import { Quotation, quotationSchema, QUOTATION_STATUSES } from '../src/modules/quotation/models/Quotation.js';
 import { ChangeRequest, changeRequestSchema, CHANGE_REQUEST_STATUSES } from '../src/modules/quotation/models/ChangeRequest.js';
 import { ApprovalDecision, approvalDecisionSchema, APPROVAL_TYPES } from '../src/modules/approval/models/ApprovalDecision.js';
+import { CommitteeApprovalVote, committeeApprovalVoteSchema } from '../src/modules/approval/models/CommitteeApprovalVote.js';
+import { CommitteeApprovalResult, committeeApprovalResultSchema } from '../src/modules/approval/models/CommitteeApprovalResult.js';
+import { CommitteeApprovalElectorate, committeeApprovalElectorateSchema } from '../src/modules/approval/models/CommitteeApprovalElectorate.js';
+import { OfflineResolutionRecordModel, offlineResolutionRecordSchema } from '../src/modules/governance/models/OfflineResolutionRecord.js';
 
 describe('Nivaas society data models', () => {
   it('requires the documented society identity and timestamps its records', async () => {
@@ -140,11 +144,41 @@ describe('Nivaas society data models', () => {
     expect(statusIndex?.[0]).toEqual({ societyId: 1, status: 1 });
   });
 
+  it('stores immutable threshold-change rationale and audit linkage on each version', () => {
+    expect(societyRuleVersionSchema.path('changeReason').options.immutable).toBe(true);
+    expect(societyRuleVersionSchema.path('supportingDocumentReference').options.immutable).toBe(true);
+    expect(societyRuleVersionSchema.path('policyChangeAuditLogId').options.immutable).toBe(true);
+  });
+
   it('does not duplicate ownership or residence arrays on Flat', () => {
     expect(flatSchema.path('ownerIds')).toBeUndefined();
     expect(flatSchema.path('residentIds')).toBeUndefined();
     expect(flatSchema.path('buildingId')).toBeDefined();
     expect(flatSchema.path('societyId')).toBeDefined();
+  });
+
+  it('models committee approvals and offline decisions as immutable, separately keyed evidence', async () => {
+    const societyId = new Types.ObjectId();
+    const projectId = new Types.ObjectId();
+    const decisionId = new Types.ObjectId();
+    const memberId = new Types.ObjectId();
+    const committeeId = new Types.ObjectId();
+    const userId = new Types.ObjectId();
+    const vote = new CommitteeApprovalVote({ societyId, projectId, approvalDecisionId: decisionId, proposalVersionId: decisionId, committeeId, voterId: memberId, decision: 'APPROVE', decidedAt: new Date() });
+    await expect(vote.validate()).resolves.toBeUndefined();
+    expect(committeeApprovalVoteSchema.path('decision').options.immutable).toBe(true);
+    expect(committeeApprovalVoteSchema.indexes().some(([keys, options]) => keys.approvalDecisionId === 1 && keys.voterId === 1 && options?.unique === true)).toBe(true);
+
+    const electorate = new CommitteeApprovalElectorate({ societyId, projectId, approvalDecisionId: decisionId, proposalVersionId: decisionId, committeeId, eligibleMemberIds: [memberId], eligibleCount: 1, ruleVersionId: new Types.ObjectId(), generatedAt: new Date() });
+    await expect(electorate.validate()).resolves.toBeUndefined();
+    expect(committeeApprovalElectorateSchema.path('eligibleMemberIds').options.immutable).toBe(true);
+
+    const result = new CommitteeApprovalResult({ societyId, projectId, approvalDecisionId: decisionId, proposalVersionId: decisionId, committeeId, totalCommitteeMembers: 1, participatingMembers: 1, approveCount: 1, rejectCount: 0, quorumRequired: 1, quorumMet: true, outcome: 'APPROVED', ruleSnapshot: {}, finalizedBy: userId, finalizedAt: new Date() });
+    await expect(result.validate()).resolves.toBeUndefined();
+
+    const offline = new OfflineResolutionRecordModel({ societyId, meetingId: new Types.ObjectId(), resolutionId: new Types.ObjectId(), ruleVersionId: new Types.ObjectId(), method: 'SHOW_OF_HANDS', attendanceMemberIds: [memberId, new Types.ObjectId()], attendanceCount: 2, yesCount: 1, noCount: 0, abstainCount: 0, quorumRequired: 1, quorumMet: true, outcome: 'APPROVED', minutesReference: 'minutes-1', supportingEvidenceReferences: ['evidence-1'], confirmedBy: userId, confirmedAt: new Date(), policySnapshot: {} });
+    await expect(offline.validate()).resolves.toBeUndefined();
+    expect(offlineResolutionRecordSchema.path('attendanceMemberIds').options.immutable).toBe(true);
   });
 
   it('defines documented budget fields, statuses, references, and Decimal128 amounts', async () => {

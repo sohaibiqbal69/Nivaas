@@ -6,10 +6,24 @@ export function Brand({ onNavigate }: { onNavigate?: () => void }) {
       to="/dashboard"
       onClick={onNavigate}
       aria-label="Nivaas dashboard"
-      className="group inline-flex min-h-11 items-center gap-3 rounded-md focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring"
+      className="nivaas-brand group inline-flex min-h-12 items-center gap-2.5 rounded-md focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring"
     >
-      <span aria-hidden="true" className="grid size-10 place-items-center rounded-md bg-accent font-headline text-xl font-bold text-foreground">N</span>
-      <span translate="no" className="font-headline text-xl font-bold tracking-tight">Nivaas</span>
+      <img
+        src="/assets/nivaas-mark-small.png"
+        alt=""
+        width="48"
+        height="48"
+        className="nivaas-brand-mark size-12 shrink-0 object-contain"
+        decoding="async"
+      />
+      <img
+        src="/assets/nivaas-wordmark.png"
+        alt="Nivaas"
+        width="1200"
+        height="400"
+        className="nivaas-brand-wordmark block h-auto w-32"
+        decoding="async"
+      />
     </Link>
   );
 }

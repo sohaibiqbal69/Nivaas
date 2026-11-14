@@ -1,13 +1,5 @@
-import { useEffect, useRef } from 'react';
-import { revealPage } from '@/lib/motion';
+import { useRef } from 'react';
 
 export function usePageMotion<T extends HTMLElement>() {
-  const ref = useRef<T>(null);
-
-  useEffect(() => {
-    const scope = revealPage(ref.current);
-    return () => scope?.revert();
-  }, []);
-
-  return ref;
+  return useRef<T>(null);
 }

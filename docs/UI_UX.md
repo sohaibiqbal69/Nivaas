@@ -1,7 +1,7 @@
 # UI_UX.md
 
 **Document:** `UI_UX.md`  
-**Version:** 1.1  
+**Version:** 1.2
 **Status:** Active Planning Document — Visual System, Typography & Motion Added  
 **Scope:** User interface, navigation, screens, role-based experience, workflows, states, and usability requirements
 
@@ -2063,9 +2063,15 @@ The five core brand colors remain the primary visual identity.
 
 # 82. UI/UX STATUS
 
-**Version:** 1.1  
+**Version:** 1.2
 **Status:** Active Planning Document
 
 This version adds the approved visual system, typography system, Anime.js motion system, reduced-motion requirements, governance-aware animation rules, and AI implementation constraints.
 
 Any significant change to navigation, workflows, role capabilities, voting behavior, data visibility, colors, typography, motion architecture, or blockchain interaction must follow `VERSIONING.md`.
+
+## 83. Committee approval and offline meeting controls
+
+Project cards show the current committee decision counts, quorum state, and configured majority separately. Only a user with the `COMMITTEE_MEMBER` application role can submit an immutable approve/reject choice; the backend also checks the current same-society committee appointment. Society Managers can finalize only when the backend reports quorum and an unambiguous result.
+
+Meeting records support society-provided document references for notices, proposals, quotations and supporting evidence. Draft general-body resolutions with an eligibility snapshot expose a manager-only offline confirmation form. The manager selects eligible attendees, enters aggregate counts and minutes/evidence references, and explicitly confirms authority and accuracy. The UI explains that Nivaas stores attendance and aggregate counts without mapping individual ballots. The browser Voting route remains unavailable; these controls do not add live, anonymous, secret-ballot, or election voting.

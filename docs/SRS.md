@@ -1,7 +1,7 @@
 # Software Requirements Specification
 
 **Document:** `SRS.md`\
-**Version:** 1.9\
+**Version:** 1.12\
 **Status:** Active Planning Specification\
 **Project:** Nivaas --- Blockchain-Based Apartment Society
 Governance System
@@ -142,6 +142,15 @@ The system shall associate a user account with its application role.
 
 The system shall support wallet addresses for users participating in
 blockchain functionality.
+
+## FR-AUTH-008
+
+The system shall renew short-lived access tokens from a revocable,
+per-login refresh session until its configured absolute expiry. The backend
+shall validate the refresh session and persisted active account before
+issuing a new access token. A session in one browser tab shall not replace or
+revoke a different login session in another tab; explicit logout shall revoke
+only the current refresh session.
 
 ------------------------------------------------------------------------
 
@@ -1728,6 +1737,18 @@ Members shall be able to view permitted project financial information.
 The system shall apply the configured financial-visibility rules before
 displaying financial information.
 
+## FR-TRANSPARENCY-005
+
+Read-only owner transparency access to projects, quotations, approval
+records, approved budgets, public audit events, and blockchain proof status
+shall require both the `OWNER_MEMBER` application role and a currently
+effective persisted Ownership relationship with the requested society.
+Residence and Membership remain separate and are not substituted for that
+relationship. Ending a Residence alone shall not revoke an active owner's
+transparency access; ending or expiring Ownership shall revoke it. The role
+does not grant write permissions. Residents receive only their explicitly
+supported resident read scope; residence does not grant voting eligibility.
+
 ------------------------------------------------------------------------
 
 # 40. BLOCKCHAIN REQUIREMENTS
@@ -2448,7 +2469,7 @@ Blockchain Verification
 
 # 57. SRS STATUS
 
-**Version:** 1.9\
+**Version:** 1.12\
 **Status:** Active Planning Specification
 
 This version incorporates the current approved business-rule decisions,
@@ -2461,3 +2482,11 @@ The SRS must be updated whenever an approved business-rule change
 affects software behavior.
 
 No major implementation should intentionally contradict this document.
+
+## Committee and offline decision requirements — 24 October 2026
+
+For committee-routed proposals, the backend records one immutable authenticated decision per active committee appointee and proposal/ApprovalDecision version, with timestamp and optional rationale. It calculates committee quorum independently from the configured majority and rejects finalization until both checks permit an outcome. The Society Manager may finalize the evaluated result but may not create or alter member decisions. Committee outcomes do not use GovernanceResolution.
+
+For general-body proposals decided in person, the backend records meeting references, agenda, attendance, method, aggregate vote counts, minutes/evidence references and authorized confirmation. Attendance and counts are validated server-side against the immutable eligible-member snapshot and configured policy. Project approval requires a valid approved outcome plus matching current project/quotation/approval context. This milestone adds no live-voting workflow; pre-existing vote APIs remain separate, and the browser Voting route remains unavailable. No anonymous, secret-ballot or election-voting behavior is added.
+
+Committee quorum/majority starter values and manager confirmation authority are configurable MVP assumptions only. Verify current 2026 Gazette wording and each society's registered bye-laws before operational use; exact legal applicability and authority remain unresolved.

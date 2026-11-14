@@ -14,6 +14,10 @@ import { Society } from '../../src/modules/society/models/Society.js';
 import { SocietyRuleVersion } from '../../src/modules/society/models/SocietyRuleVersion.js';
 import { ApprovalDecision } from '../../src/modules/approval/models/ApprovalDecision.js';
 import { User } from '../../src/modules/users/models/User.js';
+import { Ownership } from '../../src/modules/property/models/Ownership.js';
+import { Residence } from '../../src/modules/property/models/Residence.js';
+import { Vendor } from '../../src/modules/vendor/models/Vendor.js';
+import { createVendorsRouter } from '../../src/modules/vendor/vendor-routes.js';
 import {
   clearIntegrationTestDatabase,
   connectIntegrationTestDatabase,
@@ -25,13 +29,19 @@ const societyA = new Types.ObjectId();
 const societyB = new Types.ObjectId();
 const managerA = new Types.ObjectId();
 const managerB = new Types.ObjectId();
+const ownerA = new Types.ObjectId();
+const residentA = new Types.ObjectId();
+const ownerB = new Types.ObjectId();
+const residentB = new Types.ObjectId();
 const projectId = new Types.ObjectId();
 const ruleA = new Types.ObjectId();
+const activeVendorId = new Types.ObjectId();
 
 function app() {
   const application = express();
   application.use(express.json());
   application.use('/api', createQuotationRouter(createAuthenticationMiddleware(() => secret)));
+  application.use('/api', createVendorsRouter(createAuthenticationMiddleware(() => secret)));
   application.use(errorHandler);
   return application;
 }
@@ -65,11 +75,21 @@ describe('Quotation MongoDB integration', () => {
     await User.create([
       { _id: managerA, name: 'Manager A', email: `${managerA}@test`, role: 'SOCIETY_MANAGER', status: 'ACTIVE', societyId: societyA },
       { _id: managerB, name: 'Manager B', email: `${managerB}@test`, role: 'SOCIETY_MANAGER', status: 'ACTIVE', societyId: societyB },
+      { _id: ownerA, name: 'Owner A', email: `${ownerA}@test`, role: 'OWNER_MEMBER', status: 'ACTIVE', societyId: societyA },
+      { _id: residentA, name: 'Resident A', email: `${residentA}@test`, role: 'RESIDENT', status: 'ACTIVE', societyId: societyA },
+      { _id: ownerB, name: 'Owner B', email: `${ownerB}@test`, role: 'OWNER_MEMBER', status: 'ACTIVE', societyId: societyB },
+      { _id: residentB, name: 'Resident B', email: `${residentB}@test`, role: 'RESIDENT', status: 'ACTIVE', societyId: societyB },
     ]);
+    await Ownership.create([
+      { societyId: societyA, flatId: new Types.ObjectId(), userId: ownerA, ownershipType: 'PRIMARY', status: 'ACTIVE' },
+      { societyId: societyB, flatId: new Types.ObjectId(), userId: ownerB, ownershipType: 'JOINT', status: 'ACTIVE' },
+    ]);
+    await Residence.create({ societyId: societyA, flatId: new Types.ObjectId(), userId: ownerA, occupancyType: 'OWNER', status: 'ENDED', endDate: new Date(Date.now() - 86_400_000) });
     await Project.create({
       _id: projectId, societyId: societyA, title: 'Roof repair', description: 'Repair',
       category: 'Repairs', estimatedCost: '1000', proposedBy: managerA, status: 'DRAFT',
     });
+    await Vendor.create({ _id: activeVendorId, societyId: societyA, name: 'Active Vendor', status: 'ACTIVE' });
   });
   afterAll(async () => disconnectIntegrationTestDatabase());
 
@@ -77,7 +97,7 @@ describe('Quotation MongoDB integration', () => {
     const application = app();
     const created = await request(application, `/api/projects/${projectId}/quotations`, managerA, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ vendorId: new Types.ObjectId().toString(), amount: '100.25', description: 'Initial quote' }),
+      body: JSON.stringify({ vendorId: activeVendorId.toString(), amount: '100.25', description: 'Initial quote' }),
     });
     expect(created.status).toBe(201);
     const quotation = (await created.json()).data;
@@ -134,7 +154,7 @@ describe('Quotation MongoDB integration', () => {
     const application = app();
     const created = await request(application, `/api/projects/${projectId}/quotations`, managerA, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ vendorId: new Types.ObjectId().toString(), amount: '100', description: 'Quote' }),
+      body: JSON.stringify({ vendorId: activeVendorId.toString(), amount: '100', description: 'Quote' }),
     });
     const quotation = (await created.json()).data;
     expect((await request(application, `/api/quotations/${quotation._id}`, managerB)).status).toBe(404);
@@ -165,5 +185,52 @@ describe('Quotation MongoDB integration', () => {
     const submit = await request(application, `/api/change-requests/${revisionId}/submit`, managerA, { method: 'POST' });
     expect(submit.status).toBe(400);
     expect(await AuditLog.countDocuments({ societyId: societyA })).toBe(auditCountBeforeRejectedSubmit);
+  });
+
+  it('allows active owners to read society quotations while residents do not inherit financial visibility from role alone', async () => {
+    const projectB = new Types.ObjectId();
+    const quotationA = new Types.ObjectId();
+    const quotationB = new Types.ObjectId();
+    await Project.create({
+      _id: projectB, societyId: societyB, title: 'Roof repair', description: 'Repair',
+      category: 'Repairs', estimatedCost: '2000', proposedBy: managerB, status: 'DRAFT',
+    });
+    await Quotation.create([
+      { _id: quotationA, projectId, vendorId: new Types.ObjectId(), versionNumber: 1, amount: '100.25', description: 'Society A quote', status: 'DRAFT' },
+      { _id: quotationB, projectId: projectB, vendorId: new Types.ObjectId(), versionNumber: 1, amount: '900.75', description: 'Society B quote', status: 'DRAFT' },
+    ]);
+    const vendorA = await Vendor.create({ societyId: societyA, name: 'Lift Works', companyName: 'Lift Works Ltd', contactPerson: 'Private Contact', phone: '5550100', email: 'private@example.test', address: 'Private address', status: 'ACTIVE' });
+    await Vendor.create({ societyId: societyB, name: 'Foreign Vendor', status: 'ACTIVE' });
+    const application = app();
+
+    const ownResponse = await request(application, `/api/projects/${projectId}/quotations`, ownerA);
+    expect(ownResponse.status).toBe(200);
+    const ownRecords = (await ownResponse.json()).data;
+    expect(ownRecords).toHaveLength(1);
+    expect(ownRecords[0]).toMatchObject({ _id: quotationA.toString(), projectId: projectId.toString(), amount: '100.25' });
+    expect((await request(application, `/api/projects/${projectB}/quotations`, ownerA)).status).toBe(404);
+    expect((await request(application, `/api/quotations/${quotationB}`, ownerA)).status).toBe(404);
+    expect((await request(application, `/api/projects/${projectId}/quotations`, residentA)).status).toBe(403);
+    expect((await request(application, '/api/vendors', residentA)).status).toBe(403);
+    const ownerVendors = (await (await request(application, '/api/vendors', ownerA)).json()).data;
+    expect(ownerVendors.every((vendor: { societyId: string }) => vendor.societyId === societyA.toString())).toBe(true);
+    const visibleVendor = ownerVendors.find((vendor: { _id: string }) => vendor._id === vendorA._id.toString());
+    expect(visibleVendor).toMatchObject({ _id: vendorA._id.toString(), name: 'Lift Works', companyName: 'Lift Works Ltd' });
+    for (const privateField of ['contactPerson', 'phone', 'email', 'address', 'registrationDetails']) expect(visibleVendor).not.toHaveProperty(privateField);
+    expect((await request(application, `/api/vendors?societyId=${societyB}`, ownerA)).status).toBe(200);
+    const ignoredSocietyOverride = (await (await request(application, `/api/vendors?societyId=${societyB}`, ownerA)).json()).data;
+    expect(ignoredSocietyOverride.map((vendor: { _id: string }) => vendor._id)).toEqual(ownerVendors.map((vendor: { _id: string }) => vendor._id));
+
+    for (const reader of [ownerB, residentB]) {
+      if (reader === residentB) {
+        expect((await request(application, `/api/projects/${projectB}/quotations`, reader)).status).toBe(403);
+        continue;
+      }
+      const ownResponse = await request(application, `/api/projects/${projectB}/quotations`, reader);
+      expect(ownResponse.status).toBe(200);
+      expect((await ownResponse.json()).data[0]._id).toBe(quotationB.toString());
+      expect((await request(application, `/api/projects/${projectId}/quotations`, reader)).status).toBe(404);
+      expect((await request(application, `/api/quotations/${quotationA}`, reader)).status).toBe(404);
+    }
   });
 });

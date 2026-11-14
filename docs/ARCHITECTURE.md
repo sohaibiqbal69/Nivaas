@@ -1,7 +1,7 @@
 ## System Architecture Specification
 
 **Document:** `ARCHITECTURE.md`
-**Version:** 1.11
+**Version:** 1.14
 **Status:** Active Planning Document — Revised Governance, Rule Engine & Blockchain Architecture
 
 ---
@@ -450,6 +450,26 @@ Protected API requests
 Backend validates authentication
 ```
 
+Each successful login also creates a distinct `AuthSession` with a random
+opaque refresh credential. The frontend keeps both credentials in that
+browser tab's `sessionStorage`; it does not use a shared refresh cookie or
+cross-tab token synchronization. The backend stores only a SHA-256 hash of
+the refresh secret. On an expired access-token response, the frontend
+single-flights renewal per tab, exchanges the refresh credential, and retries
+the original request at most once. Refresh checks absolute expiry, revocation
+and the current persisted User status; role/society authorization continues
+through the existing current-user middleware. Explicit logout clears the tab
+immediately and best-effort revokes its refresh session. Previously issued
+access JWTs expire naturally within the configured access-token lifetime.
+
+The absolute maximum browser session lifetime is controlled by
+`AUTH_REFRESH_SESSION_TTL_SECONDS` (30 days by default in local configuration)
+and does not slide forward during renewal. A temporary network failure does
+not clear the browser session. When `BroadcastChannel` is supported, the
+client detects a live duplicate tab sharing a cloned session ID and clears
+the clone; independently logged-in tabs have different session IDs. Browsers
+without BroadcastChannel cannot reliably detect a duplicated session.
+
 ---
 
 # 17. AUTHORIZATION FLOW
@@ -684,6 +704,46 @@ A governance resolution stores the effective rules used for that particular
 decision so that the historical result remains reproducible even if society
 configuration changes later.
 
+### Current ordinary general-body implementation
+
+The backend governance module uses society-scoped meeting, resolution,
+eligibility-snapshot, and immutable-vote models. Typed `governancePolicy`
+configuration is versioned separately from `SocietyRuleVersion.versionNumber`;
+legacy opaque majority/quorum/voting values remain loadable but do not imply
+a configured rule. A Society Manager can activate a validated policy in a
+new immutable rule version. A supplied society document reference is recorded
+as confirmation evidence, not verified as legally adopted by Nivaas.
+
+The ordinary general-body starter policy selects active primary memberships
+with valid society-scoped records and active user accounts. It uses the
+eligible snapshot as its denominator, quorum `min(ceil(2 * eligible / 3),
+20)`, YES strictly greater than NO, abstentions included in quorum but
+excluded from the YES/NO comparison, and `NO_DECISION` for ties or unmet
+quorum. These are configurable product defaults, not universal legal
+requirements. Snapshot creation fails closed if current joint, associate, or
+provisional memberships are present because the current data model lacks the
+required ordering, consent, or provisional-basis evidence.
+
+Authenticated routes publish AGM/SGM meetings, create configured ordinary
+general-body resolutions, snapshot eligibility, open voting, accept one
+authenticated vote per eligible member, close and calculate server-side, and
+finalize idempotently. MongoDB transactions and unique indexes protect vote
+acceptance and state transitions. A project changes to `APPROVED` only when a
+passing project resolution still matches the current SGM-required
+`ApprovalDecision`, decision body, rule version, evaluated amount and
+quotation/change-request revision. Other outcomes cannot approve a project.
+Finalization emits append-only audit evidence and calls the existing
+AuditLog blockchain proof service; UI confirmation reflects the service's
+receipt/read-back result, never a locally fabricated status. The Voting
+navigation uses the existing design system and Anime.js page-motion utility.
+
+Committee-type general-body resolutions, special resolutions, elections, secret ballots, chairperson
+casting votes, alternate membership categories without adequate evidence,
+other project-approval route mappings, and legal-adoption validation remain
+disabled or unresolved. Meeting publication records a society-provided notice
+reference and configured lead time but does not verify a delivered notice
+document.
+
 ---
 
 # 23. MEMBERSHIP AND ELIGIBILITY ARCHITECTURE
@@ -737,6 +797,15 @@ versioned settings such as:
 - Project completion authority
 
 The Approval Engine consumes the effective configuration.
+
+The active approval threshold is read from the society's active immutable
+`SocietyRuleVersion`; UI code does not keep a separate threshold. A Society
+Manager changes it by activating a new version with an audit event. The old
+threshold and approval decisions remain historical snapshots. The AuditLog
+event includes a domain-separated commitment to society, policy type, version,
+and canonical configuration hash; the existing AuditLog proof service may
+anchor that event after activation. Registry failure does not undo a valid
+MongoDB configuration change and remains a separate, visible proof status.
 
 ```text
 Project / Quotation
@@ -887,6 +956,28 @@ The database stores:
 
 Actual file storage can initially be local for development.
 Cloud/object storage can be introduced later without changing the application's core business logic.
+
+Complaint-photo implementation uses `LocalEvidenceStorage`, Node filesystem
+APIs and private `backend/uploads/complaint-evidence/` storage (already ignored
+by Git). Keys and download names are server-generated. This directory is never
+served statically. The same path is used from source and compiled backend code.
+The API authenticates and authorizes before buffering at most 5 MiB; compressed
+request bodies are rejected. Downloads recheck access and the stored hash.
+
+File storage and MongoDB cannot share an atomic transaction. The private file
+is written first; metadata, timeline and audit are then committed atomically.
+Known aborted transactions remove the new file. Ambiguous commit results retain
+the private file to avoid breaking possibly committed metadata; process crashes
+or cleanup failures may leave unreferenced private files, never public URLs or
+fabricated timeline records. Reconciliation must compare keys with committed
+metadata before any removal. No automatic cleanup of historical evidence runs.
+
+Local development needs no external service or new dependency. Deployment must
+mount a persistent private volume, back it up alongside MongoDB, and restrict
+filesystem access to the backend identity (Windows ACLs inherit from the host).
+Ephemeral/container-local disks and independent disks across backend replicas
+are not a production durability solution. Replace the storage adapter with a
+private object store or shared volume when deploying multiple instances.
 
 ---
 
@@ -1252,5 +1343,55 @@ AI coding tools must:
 
 # 43. ARCHITECTURE STATUS
 
-Version 1.11 — Active Planning Document. Revised to align with SRS v1.9, Business Rules v1.9, API v1.9 and Database v1.12, explicitly introducing the modular-monolith domain structure, membership/eligibility layer, versioned rule configuration, Approval Engine, Governance Resolution architecture, blockchain transaction boundaries, separate platform/society authorization scopes, nullable platform-administrator society context, user-list/profile access and safe-response boundaries, one-time account-setup credential persistence and atomic setup flow, persisted account-status enforcement and lifecycle restoration, the typed immutable AuditLog model and correction reference, asynchronous proof association through blockchain transaction tracking, and versioned canonical AuditLog hashing.
+Private evidence extension (24 October 2026): NoticeEvidenceService reuses the
+bounded JPEG/PNG validator and private LocalEvidenceStorage adapter used by
+complaints. Its transaction locks a draft notice against publication and commits
+attachment metadata, notice linkage and audit together. Downloads authorize the
+parent record and check SHA-256 before returning bytes. Local storage requires a
+persistent private volume and coordinated database/file backups for deployment;
+there is no public static directory. An ambiguous commit retains private bytes
+for reconciliation rather than deleting a potentially committed attachment.
+
+Complaint workflow implementation (23 October 2026): the complaint API layer
+validates authentication and delegates writes to ComplaintService. MongoDB
+transactions combine status changes, append-only ComplaintUpdate records and
+canonical AuditLog events. The browser consumes the scoped API; it cannot
+choose creator/society or directly change status. The first slice ends at
+manager resolution, with resident confirmation/reopening still policy-blocked.
+No complaint blockchain proof is implied by an application audit event.
+
+Version 1.14 — Active Planning Document. Revised to align with SRS v1.12, API v1.16 and Database v1.17. It retains the modular-monolith domain structure, membership/eligibility layer, versioned rule configuration, Approval Engine, Governance Resolution architecture, blockchain transaction boundaries, separate platform/society authorization scopes, nullable platform-administrator society context, user-list/profile access and safe-response boundaries, account setup, persisted account-status enforcement, typed immutable AuditLog, deployment-aware proof association, versioned canonical AuditLog hashing, and per-login refresh sessions that preserve tab isolation. The owner transparency boundary requires verified active same-society ownership, remains separate from Residence/Membership, and grants no write authority.
 Any major architectural change must update this document and the affected technical specifications.
+
+## Owner transparency read boundary — 24 October 2026
+
+The backend authorizes owner transparency from both the authenticated
+`OWNER_MEMBER` role and a currently effective, persisted Ownership record.
+Ownership is not replaced by residence, membership, or a frontend-supplied
+society ID. Project, quotation, approval, approved-budget, vendor-label,
+public-audit, and proof-status reads remain server-scoped to that society.
+Owners receive no write actions; vendor read responses omit direct contact
+fields and audit/proof APIs exclude private entity types. Residents retain
+only the explicit MVP read scope described in BUSINESS_RULES.md. Blockchain
+status comes from the existing deployment-aware proof service, never from
+audit integrity alone.
+
+The Project module persists append-only progress/completion records and
+manager-uploaded private project photos. Expense records are append-only and
+transactionally update the existing approved budget/category counters. Project
+completion requires a completion record, after photo, final invoice reference,
+and final cost within the approved amount and not below recorded expenses.
+Verified same-society owners receive the public progress and financial summary;
+residence alone grants no access. These capabilities do not imply completion
+confirmation or budget-overrun approval authority: those rules remain
+unresolved. Expenses exceeding either cap fail closed. Individual evidence,
+expense and attendance data remain off-chain; these workflows do not create a
+blockchain proof.
+
+## Committee and offline general-body decision paths
+
+Committee decisions use a dedicated immutable member-decision ledger and immutable aggregate result, separate from general-body resolutions. The authenticated committee appointment is checked independently of User application role, ownership, residence, and Membership. The existing ApprovalDecision snapshots its rule/version, project, evaluated amount, threshold, and applicable quotation/change revision. Category and budget authority mappings are not currently represented in this decision contract. Initial committee quorum and majority are configurable product assumptions (2/3 rounded up; strictly more than half of cast decisions), not legal defaults.
+
+Offline AGM/SGM confirmation stores attendance against the private eligibility snapshot, aggregate counts, minutes and evidence references, method, rule snapshot, confirming manager and timestamp. Server-side quorum and majority calculation precede any project approval. A failed quorum yields NO_DECISION and leaves the project pending. Individual offline ballots are not collected. General-body resolution and committee result persistence are distinct, off-chain records; existing AuditLog proof semantics remain unchanged.
+
+Project category and budget routing are not introduced by this milestone because the current approval requirements do not define category/budget authority mappings. The existing configurable threshold route remains active. A future mapping must be explicitly configured and versioned before it can change a decision body.

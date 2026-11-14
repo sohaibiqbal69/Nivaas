@@ -8,6 +8,9 @@ artifacts/
 cache/
 typechain-types/
 /.hardhat-user-data/
+/blockchain/deployments/*.json
+/.nivaas-dev-state.json
+/.nivaas-dev.lock
 
 # Environment and secrets
 .env
