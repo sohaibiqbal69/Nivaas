@@ -1,7 +1,15 @@
 const { expect } = require('chai');
+const { validateDeploymentNetwork } = require('../scripts/deploy.ts');
 const { ethers } = require('hardhat');
 
 describe('GovernanceProofRegistry', function () {
+  it('allows only matching localhost and Sepolia deployment network identities', function () {
+    expect(() => validateDeploymentNetwork('localhost', 31337n)).not.to.throw();
+    expect(() => validateDeploymentNetwork('sepolia', 11155111n)).not.to.throw();
+    expect(() => validateDeploymentNetwork('sepolia', 31337n)).to.throw(/Expected sepolia chain/);
+    expect(() => validateDeploymentNetwork('mainnet', 1n)).to.throw(/only on localhost or Sepolia/);
+  });
+
   async function deploy() {
     const [owner, submitter, other] = await ethers.getSigners();
     const Registry = await ethers.getContractFactory('GovernanceProofRegistry');

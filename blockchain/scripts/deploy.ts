@@ -2,17 +2,17 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { ethers, network } from 'hardhat';
 
-const EXPECTED_LOCAL_CHAIN_ID = 31337n;
+const EXPECTED_CHAIN_IDS: Record<string, bigint> = { localhost: 31337n, sepolia: 11155111n };
+
+export function validateDeploymentNetwork(networkName: string, chainId: bigint): void {
+  const expectedChainId = EXPECTED_CHAIN_IDS[networkName];
+  if (expectedChainId === undefined) throw new Error('GovernanceProofRegistry deployment is allowed only on localhost or Sepolia.');
+  if (chainId !== expectedChainId) throw new Error(`Expected ${networkName} chain ${expectedChainId}, received ${chainId}.`);
+}
 
 async function main(): Promise<void> {
-  if (network.name !== 'localhost') {
-    throw new Error('GovernanceProofRegistry deployment is restricted to the configured localhost network.');
-  }
-
   const chain = await ethers.provider.getNetwork();
-  if (chain.chainId !== EXPECTED_LOCAL_CHAIN_ID) {
-    throw new Error(`Expected local Hardhat chain ${EXPECTED_LOCAL_CHAIN_ID}, received ${chain.chainId}.`);
-  }
+  validateDeploymentNetwork(network.name, chain.chainId);
 
   const [submitter] = await ethers.getSigners();
   if (!submitter) throw new Error('No local Hardhat deployment account is available.');
@@ -35,7 +35,8 @@ async function main(): Promise<void> {
 
   const deploymentsDirectory = resolve(__dirname, '..', 'deployments');
   mkdirSync(deploymentsDirectory, { recursive: true });
-  writeFileSync(resolve(deploymentsDirectory, 'localhost.json'), `${JSON.stringify(record, null, 2)}\n`, 'utf8');
+  const deploymentRecordPath = resolve(deploymentsDirectory, `${network.name}.json`);
+  writeFileSync(deploymentRecordPath, `${JSON.stringify(record, null, 2)}\n`, 'utf8');
   process.stdout.write(`${JSON.stringify(record, null, 2)}\n`);
 }
 

@@ -24,6 +24,18 @@ export function proofDisplayState(operation: ProofOperationStatus | null, verifi
   return 'NO_PROOF';
 }
 
+export function blockchainNetworkName(chainId: string): string {
+  if (chainId === '11155111') return 'Sepolia';
+  if (chainId === '31337') return 'Localhost';
+  return `Chain ${chainId}`;
+}
+
+export function transactionExplorerUrl(chainId: string | undefined, transactionHash: string): string | undefined {
+  return chainId === '11155111' && /^0x[0-9a-f]{64}$/i.test(transactionHash)
+    ? `https://sepolia.etherscan.io/tx/${transactionHash}`
+    : undefined;
+}
+
 export function BlockchainPage() {
   const pageRef = usePageMotion<HTMLDivElement>();
   const [searchParams] = useSearchParams();
@@ -157,9 +169,9 @@ export function BlockchainPage() {
           {status === 'CONFLICT' ? <p role="alert">The chain record conflicts with this AuditLog. Do not overwrite or retry as a replacement proof.</p> : null}
           {status === 'INTEGRITY_ERROR' ? <p role="alert">The persisted AuditLog does not match its canonical hash. Blockchain proof cannot verify this record.</p> : null}
           <p className="break-all font-mono text-xs text-muted-foreground">AuditLog ID: {currentRecord._id}</p>
-          {verification?.chainId ? <p>Chain ID {verification.chainId} · contract <span className="break-all font-mono text-xs">{verification.contractAddress}</span></p> : null}
+          {verification?.chainId ? <p>Network {blockchainNetworkName(verification.chainId)} (chain ID {verification.chainId}) · contract <span className="break-all font-mono text-xs">{verification.contractAddress}</span></p> : null}
           {status === 'PREVIOUS_DEPLOYMENT' && operation ? <div className="rounded border border-warning/40 bg-warning/5 p-3 text-xs text-muted-foreground"><p>Previous operation: chain {operation.chainId ?? 'unknown'} · contract <span className="break-all font-mono">{operation.contractAddress ?? 'unknown'}</span></p><p className="mt-1 break-all font-mono">Deployment {operation.deploymentTransactionHash ?? 'unknown'}{operation.attempts?.at(-1)?.transactionHash ? ` · transaction ${operation.attempts.at(-1)?.transactionHash}` : ''}</p></div> : null}
-          {verification?.transactionHash ? <p>Transaction <span className="break-all font-mono text-xs">{verification.transactionHash}</span></p> : null}
+          {verification?.transactionHash ? <p>Transaction <span className="break-all font-mono text-xs">{verification.transactionHash}</span>{transactionExplorerUrl(verification.chainId, verification.transactionHash) ? <> · <a className="underline underline-offset-2" href={transactionExplorerUrl(verification.chainId, verification.transactionHash)} target="_blank" rel="noreferrer">View on Sepolia Etherscan</a></> : null}</p> : null}
           {verification?.blockNumber !== undefined ? <p>Block {verification.blockNumber} · receipt status {verification.receiptStatus}</p> : null}
           {verification?.recordReference ? <p className="break-all font-mono text-xs text-muted-foreground">Reference: {verification.recordReference}</p> : null}
           {operation?.lastErrorCode ? <p className="text-danger" role="status">Last submission diagnostic: <span className="font-mono">{operation.lastErrorCode}</span></p> : null}

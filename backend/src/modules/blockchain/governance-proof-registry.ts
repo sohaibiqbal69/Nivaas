@@ -50,7 +50,14 @@ export class EthersGovernanceProofRegistryClient implements GovernanceProofRegis
   }
 
   async validateDeployment(): Promise<void> {
-    if (this.config.chainId !== '31337') throw new Error('BLOCKCHAIN_CHAIN_MISMATCH');
+    if (!['31337', '11155111'].includes(this.config.chainId)) throw new Error('BLOCKCHAIN_CHAIN_MISMATCH');
+    let rpcUrl: URL;
+    try { rpcUrl = new URL(this.config.rpcUrl); }
+    catch { throw new Error('BLOCKCHAIN_RPC_MISMATCH'); }
+    const isLoopback = ['127.0.0.1', 'localhost', '[::1]'].includes(rpcUrl.hostname);
+    const localRpc = this.config.chainId === '31337' && rpcUrl.protocol === 'http:' && isLoopback;
+    const sepoliaRpc = this.config.chainId === '11155111' && rpcUrl.protocol === 'https:';
+    if (!localRpc && !sepoliaRpc) throw new Error('BLOCKCHAIN_RPC_MISMATCH');
     const network = await this.provider.getNetwork();
     if (network.chainId.toString() !== this.config.chainId) throw new Error('BLOCKCHAIN_CHAIN_MISMATCH');
     const code = await this.provider.getCode(this.config.contractAddress);

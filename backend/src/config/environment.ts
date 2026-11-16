@@ -130,15 +130,17 @@ export function readBackendConfig(environment: NodeJS.ProcessEnv = process.env):
       throw new Error('BLOCKCHAIN_DEPLOYMENT_BLOCK must be a non-negative safe integer.');
     }
     if (!/^\d+$/.test(blockchainValues.chainId!)) throw new Error('BLOCKCHAIN_CHAIN_ID must be a decimal integer string.');
-    if (blockchainValues.chainId !== '31337') throw new Error('BLOCKCHAIN_CHAIN_ID must be 31337 for the local Hardhat proof deployment.');
+    if (!['31337', '11155111'].includes(blockchainValues.chainId!)) throw new Error('BLOCKCHAIN_CHAIN_ID must be 31337 (localhost) or 11155111 (Sepolia).');
     if (!/^0x[0-9a-f]{40}$/i.test(blockchainValues.contractAddress!)) throw new Error('BLOCKCHAIN_CONTRACT_ADDRESS must be an EVM address.');
     if (!/^0x[0-9a-f]{64}$/i.test(blockchainValues.deploymentTransactionHash!)) throw new Error('BLOCKCHAIN_DEPLOYMENT_TRANSACTION_HASH must be a 32-byte transaction hash.');
     if (!/^0x[0-9a-f]{64}$/i.test(blockchainValues.signerPrivateKey!)) throw new Error('BLOCKCHAIN_SIGNER_PRIVATE_KEY must be a 32-byte private key.');
     let rpc: URL;
     try { rpc = new URL(blockchainValues.rpcUrl!); } catch { throw new Error('BLOCKCHAIN_RPC_URL must be a valid URL.'); }
     if (rpc.protocol !== 'http:' && rpc.protocol !== 'https:') throw new Error('BLOCKCHAIN_RPC_URL must use HTTP or HTTPS.');
-    if (rpc.protocol !== 'http:' || !['127.0.0.1', 'localhost', '[::1]'].includes(rpc.hostname)) {
-      throw new Error('BLOCKCHAIN_RPC_URL must point to the local Hardhat node over HTTP.');
+    const localRpc = rpc.protocol === 'http:' && ['127.0.0.1', 'localhost', '[::1]'].includes(rpc.hostname);
+    const sepoliaRpc = blockchainValues.chainId === '11155111' && rpc.protocol === 'https:';
+    if (!localRpc && !sepoliaRpc) {
+      throw new Error('BLOCKCHAIN_RPC_URL must use loopback HTTP for localhost or HTTPS for Sepolia.');
     }
     blockchain = {
       rpcUrl: blockchainValues.rpcUrl!,

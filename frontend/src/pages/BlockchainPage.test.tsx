@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import { ApiError } from '@/lib/api';
-import { BlockchainPage, proofDisplayState } from './BlockchainPage';
+import { BlockchainPage, blockchainNetworkName, proofDisplayState, transactionExplorerUrl } from './BlockchainPage';
 
 const mocks = vi.hoisted(() => ({
   useAuth: vi.fn(), listAuditLogs: vi.fn(), getAuditLogById: vi.fn(), getAuditLogProofStatus: vi.fn(),
@@ -20,6 +20,15 @@ vi.mock('@/lib/blockchain', () => ({
 
 describe('blockchain proof display', () => {
   beforeEach(() => { vi.clearAllMocks(); mocks.useAuth.mockReset(); });
+
+  it('names supported networks and links Sepolia transactions to Etherscan', () => {
+    const hash = `0x${'a'.repeat(64)}`;
+    expect(blockchainNetworkName('11155111')).toBe('Sepolia');
+    expect(blockchainNetworkName('31337')).toBe('Localhost');
+    expect(transactionExplorerUrl('11155111', hash)).toBe(`https://sepolia.etherscan.io/tx/${hash}`);
+    expect(transactionExplorerUrl('31337', hash)).toBeUndefined();
+    expect(transactionExplorerUrl('11155111', 'bad-hash')).toBeUndefined();
+  });
 
   it('requires registry verification before displaying a proof as confirmed', () => {
     expect(proofDisplayState({ status: 'CONFIRMED' }, { auditLogId: 'a', proofStatus: 'PENDING', verified: false })).toBe('PENDING');
