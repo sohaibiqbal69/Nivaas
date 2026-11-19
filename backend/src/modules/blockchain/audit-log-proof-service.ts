@@ -74,7 +74,7 @@ export class AuditLogProofService {
     // chain. Reconcile it before treating the request as idempotently done.
     if (operation.status === 'CONFIRMED') {
       await this.ensureDeploymentValid();
-      if (await this.reconcile(recordReference, record.recordHash)) return serializeOperation(operation);
+      if (await this.reconcile(recordReference, record.recordHash, transactionHashes(operation))) return serializeOperation(operation);
     }
 
     const leaseToken = randomUUID();
@@ -97,7 +97,7 @@ export class AuditLogProofService {
     if (prepared.matchedCount !== 1) throw new ApiError(503, 'BLOCKCHAIN_OPERATION_ERROR', 'The proof attempt could not be persisted before broadcast.');
     try {
       await this.ensureDeploymentValid();
-      const recovered = await this.reconcile(recordReference, record.recordHash);
+      const recovered = await this.reconcile(recordReference, record.recordHash, transactionHashes(claimed));
       if (recovered) {
         await this.confirm(claimed._id, leaseToken, attemptSequence, recovered.transactionHash, recovered.blockNumber, recovered.sender);
         return this.getSerialized(claimed._id);
@@ -212,7 +212,9 @@ export class AuditLogProofService {
         verified: false,
       };
     }
-    const event = (await this.registry.findProofEvents(recordReference, AUDIT_LOG_PROOF_VERSION))
+    const identity = operationIdentity(record._id, this.config.chainId, this.config.contractAddress, this.config.deploymentTransactionHash);
+    const operation = await BlockchainProofOperation.findOne(identity) as unknown as OperationLike | null;
+    const event = (await this.registry.findProofEvents(recordReference, AUDIT_LOG_PROOF_VERSION, transactionHashes(operation)))
       .find((candidate) => candidate.recordHash.toLowerCase() === computedHash);
     if (!event) return { auditLogId, recordIntegrity: true, recordReference, proofVersion: AUDIT_LOG_PROOF_VERSION, proofStatus: 'PENDING', verified: false };
     const receipt = await this.registry.getTransactionReceipt(event.transactionHash);
@@ -268,11 +270,11 @@ export class AuditLogProofService {
     return record;
   }
 
-  private async reconcile(reference: string, recordHash: string): Promise<RegistryEvent | null> {
+  private async reconcile(reference: string, recordHash: string, hashes: string[] = []): Promise<RegistryEvent | null> {
     const proof = await this.registry.getProof(reference, AUDIT_LOG_PROOF_VERSION);
     if (!proof) return null;
     if (proof.recordHash.toLowerCase() !== recordHash) throw new ApiError(409, 'BLOCKCHAIN_PROOF_CONFLICT', 'A different proof is already registered for this AuditLog reference and version.');
-    const events = await this.registry.findProofEvents(reference, AUDIT_LOG_PROOF_VERSION);
+    const events = await this.registry.findProofEvents(reference, AUDIT_LOG_PROOF_VERSION, hashes);
     const event = events.find((candidate) => candidate.recordHash.toLowerCase() === recordHash);
     if (!event) throw new ApiError(503, 'BLOCKCHAIN_RECONCILIATION_REQUIRED', 'The existing proof could not be reconciled to its registration transaction.');
     const receipt = await this.registry.getTransactionReceipt(event.transactionHash);
@@ -335,6 +337,12 @@ function classifyFailure(error: unknown): string {
   if (message.includes('CHAIN_MISMATCH') || message.includes('CONTRACT_MISSING') || message.includes('DEPLOYMENT_MISMATCH') || message.includes('SIGNER_UNAUTHORIZED')) return message;
   if (message.includes('insufficient funds')) return 'BLOCKCHAIN_INSUFFICIENT_FUNDS';
   return 'BLOCKCHAIN_OUTCOME_AMBIGUOUS';
+}
+
+function transactionHashes(operation: OperationLike | null): string[] {
+  return (operation?.attempts ?? [])
+    .map((attempt) => attempt.transactionHash)
+    .filter((hash): hash is string => typeof hash === 'string');
 }
 
 function isKnownRevert(error: unknown): boolean {

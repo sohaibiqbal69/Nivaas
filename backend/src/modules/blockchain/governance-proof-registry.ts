@@ -1,4 +1,4 @@
-import { Contract, Interface, JsonRpcProvider, Wallet } from 'ethers';
+import { Contract, Interface, JsonRpcProvider, Wallet, type TopicFilter } from 'ethers';
 
 export const governanceProofRegistryAbi = [
   'error UnknownProof()',
@@ -23,7 +23,7 @@ export type ProofReceipt = { status: number | null; blockNumber: number; transac
 export interface GovernanceProofRegistryClient {
   validateDeployment(): Promise<void>;
   getProof(reference: string, version: number): Promise<RegistryProof | null>;
-  findProofEvents(reference: string, version: number): Promise<RegistryEvent[]>;
+  findProofEvents(reference: string, version: number, transactionHashes?: string[]): Promise<RegistryEvent[]>;
   getTransactionReceipt(hash: string): Promise<ProofReceipt | null>;
   registerProof(reference: string, version: number, recordHash: string): Promise<{ hash: string; sender: string; wait(): Promise<ProofReceipt | null> }>;
   verifyProof(reference: string, version: number, recordHash: string): Promise<boolean>;
@@ -86,17 +86,32 @@ export class EthersGovernanceProofRegistryClient implements GovernanceProofRegis
     }
   }
 
-  async findProofEvents(reference: string, version: number): Promise<RegistryEvent[]> {
-    const events = await this.contract.queryFilter(this.contract.filters.ProofRegistered(reference, version), this.config.deploymentBlock);
-    return events.flatMap((event) => {
-      const parsed = this.contract.interface.parseLog({ topics: event.topics, data: event.data });
-      return parsed ? [{
-        transactionHash: event.transactionHash,
-        blockNumber: event.blockNumber,
-        recordHash: String(parsed.args.recordHash).toLowerCase(),
-        sender: String(parsed.args.registeredBy),
-      }] : [];
-    });
+  async findProofEvents(reference: string, version: number, transactionHashes: string[] = []): Promise<RegistryEvent[]> {
+    if (!transactionHashes.length) {
+      throw new Error('BLOCKCHAIN_EVENT_TRANSACTION_HISTORY_REQUIRED');
+    }
+    const filterTopics: TopicFilter = this.contract.interface.encodeFilterTopics('ProofRegistered', [reference, version]);
+    const events: RegistryEvent[] = [];
+    for (const hash of [...new Set(transactionHashes)]) {
+      const receipt = await this.provider.getTransactionReceipt(hash);
+      if (!receipt) continue;
+      for (const log of receipt.logs) {
+        if (log.address.toLowerCase() !== this.config.contractAddress.toLowerCase()) continue;
+        if (filterTopics.some((topic, index) => typeof topic === 'string'
+          && log.topics[index]?.toLowerCase() !== topic.toLowerCase())) continue;
+        const parsed = this.contract.interface.parseLog({ topics: [...log.topics], data: log.data });
+        if (!parsed || parsed.name !== 'ProofRegistered'
+          || String(parsed.args.recordReference).toLowerCase() !== reference.toLowerCase()
+          || parsed.args.version !== BigInt(version)) continue;
+        events.push({
+          transactionHash: receipt.hash,
+          blockNumber: receipt.blockNumber,
+          recordHash: String(parsed.args.recordHash).toLowerCase(),
+          sender: String(parsed.args.registeredBy),
+        });
+      }
+    }
+    return events;
   }
 
   async getTransactionReceipt(hash: string): Promise<ProofReceipt | null> {

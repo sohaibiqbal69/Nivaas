@@ -93,6 +93,9 @@ describe('historical AuditLog proof lookup', () => {
   it('verifies an existing proof for an old immutable event using the stored reference and hash', async () => {
     const record = historicalRecord();
     vi.spyOn(AuditLog, 'findById').mockReturnValue({ exec: async () => record } as any);
+    vi.spyOn(BlockchainProofOperation, 'findOne').mockResolvedValue(savedOperation(record, 'CONFIRMED', [
+      { sequence: 1, transactionHash: `0x${'c'.repeat(64)}`, status: 'CONFIRMED' },
+    ]) as any);
     const result = await new AuditLogProofService(registryFor(record, true), config).verify(String(record._id));
     expect(result).toMatchObject({ proofStatus: 'CONFIRMED', verified: true, recordIntegrity: true, blockNumber: 2 });
   });
@@ -153,6 +156,7 @@ describe('historical AuditLog proof lookup', () => {
       return { matchedCount: 1 } as any;
     });
     vi.spyOn(BlockchainProofOperation, 'findById').mockResolvedValue(operation as any);
+    vi.spyOn(BlockchainProofOperation, 'findOne').mockResolvedValue(operation);
 
     const result = await new AuditLogProofService(registry, config).submit(String(record._id));
     expect(record.createdAt).toEqual(new Date('2023-04-05T06:07:08.000Z'));
